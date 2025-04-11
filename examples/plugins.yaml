@@ -1,0 +1,30 @@
+plugins:
+  - name: "kubernetes"
+    repository: "https://github.com/corynth/plugins"
+    version: "v1.2.0"
+    path: "kubernetes"
+    
+  - name: "terraform"
+    repository: "https://github.com/corynth/plugins"
+    version: "v0.9.0"
+    path: "terraform"
+    
+  - name: "aws"
+    repository: "https://github.com/corynth/plugins"
+    version: "v1.0.0"
+    path: "aws"
+    
+  - name: "docker"
+    repository: "https://github.com/corynth/plugins"
+    version: "v1.1.0"
+    path: "docker"
+    
+  - name: "prometheus"
+    repository: "https://github.com/corynth/plugins"
+    version: "v0.8.0"
+    path: "prometheus"
+    
+  - name: "slack"
+    repository: "https://github.com/corynth/plugins"
+    version: "v1.0.0"
+    path: "slack"

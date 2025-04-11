@@ -1,0 +1,27 @@
+flow:
+  name: "master_flow"
+  description: "Complete CI/CD pipeline with build, deploy, and test phases"
+  chain:
+    - flow: "build_flow"
+      on_success: "deploy_flow"
+      on_failure: "notify_failure_flow"
+    
+    - flow: "deploy_flow"
+      on_success: "test_flow"
+      on_failure: "rollback_flow"
+    
+    - flow: "test_flow"
+      on_success: "notify_success_flow"
+      on_failure: "rollback_flow"
+    
+    - flow: "rollback_flow"
+      on_success: "notify_rollback_flow"
+      on_failure: "notify_critical_failure_flow"
+    
+    - flow: "notify_success_flow"
+    
+    - flow: "notify_failure_flow"
+    
+    - flow: "notify_rollback_flow"
+    
+    - flow: "notify_critical_failure_flow"

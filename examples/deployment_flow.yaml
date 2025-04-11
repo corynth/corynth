@@ -1,0 +1,74 @@
+flow:
+  name: "deployment_flow"
+  description: "Deploy application to production"
+  steps:
+    - name: "clone_repo"
+      plugin: "git"
+      action: "clone"
+      params:
+        repo: "https://github.com/user/app-repo.git"
+        branch: "main"
+        directory: "./source"
+    
+    - name: "install_dependencies"
+      plugin: "shell"
+      action: "exec"
+      params:
+        command: "npm install"
+        working_dir: "./source"
+      depends_on:
+        - step: "clone_repo"
+          status: "success"
+    
+    - name: "run_tests"
+      plugin: "shell"
+      action: "exec"
+      params:
+        command: "npm test"
+        working_dir: "./source"
+      depends_on:
+        - step: "install_dependencies"
+          status: "success"
+    
+    - name: "build_app"
+      plugin: "shell"
+      action: "exec"
+      params:
+        command: "npm run build"
+        working_dir: "./source"
+        env:
+          NODE_ENV: "production"
+      depends_on:
+        - step: "run_tests"
+          status: "success"
+    
+    - name: "deploy_to_servers"
+      plugin: "ansible"
+      action: "playbook"
+      params:
+        playbook: "./playbooks/deploy.yml"
+        inventory: "./playbooks/inventory.ini"
+        extra_vars:
+          app_version: "1.0.0"
+          deploy_env: "production"
+      depends_on:
+        - step: "build_app"
+          status: "success"
+    
+    - name: "verify_deployment"
+      plugin: "shell"
+      action: "exec"
+      params:
+        command: "curl -s https://app.example.com/health | grep 'ok'"
+      depends_on:
+        - step: "deploy_to_servers"
+          status: "success"
+    
+    - name: "notify_team"
+      plugin: "shell"
+      action: "exec"
+      params:
+        command: "echo 'Deployment completed successfully' | mail -s 'Deployment Status' team@example.com"
+      depends_on:
+        - step: "verify_deployment"
+          status: "success"
