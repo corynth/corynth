@@ -1,0 +1,81 @@
+flow:
+  name: "kubernetes_test_flow"
+  description: "Test flow for the Kubernetes plugin"
+  steps:
+    - name: "create_namespace"
+      plugin: "kubernetes"
+      action: "apply"
+      params:
+        manifest: |
+          apiVersion: v1
+          kind: Namespace
+          metadata:
+            name: corynth-test
+        wait: true
+    
+    - name: "deploy_application"
+      plugin: "kubernetes"
+      action: "apply"
+      params:
+        filename: "./tests/fixtures/kubernetes/deployment.yaml"
+        namespace: "corynth-test"
+        wait: true
+      depends_on:
+        - step: "create_namespace"
+          status: "success"
+    
+    - name: "create_service"
+      plugin: "kubernetes"
+      action: "apply"
+      params:
+        filename: "./tests/fixtures/kubernetes/service.yaml"
+        namespace: "corynth-test"
+        wait: true
+      depends_on:
+        - step: "deploy_application"
+          status: "success"
+    
+    - name: "get_pods"
+      plugin: "kubernetes"
+      action: "get"
+      params:
+        resource: "pods"
+        namespace: "corynth-test"
+        selector: "app=test-app"
+        output: "wide"
+      depends_on:
+        - step: "create_service"
+          status: "success"
+    
+    - name: "get_services"
+      plugin: "kubernetes"
+      action: "get"
+      params:
+        resource: "services"
+        namespace: "corynth-test"
+        output: "wide"
+      depends_on:
+        - step: "create_service"
+          status: "success"
+    
+    - name: "describe_deployment"
+      plugin: "kubernetes"
+      action: "describe"
+      params:
+        resource: "deployment"
+        name: "test-deployment"
+        namespace: "corynth-test"
+      depends_on:
+        - step: "get_pods"
+          status: "success"
+    
+    - name: "cleanup_namespace"
+      plugin: "kubernetes"
+      action: "delete"
+      params:
+        resource: "namespace"
+        name: "corynth-test"
+        wait: true
+      depends_on:
+        - step: "describe_deployment"
+          status: "success"
