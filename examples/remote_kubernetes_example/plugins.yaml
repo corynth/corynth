@@ -1,0 +1,5 @@
+plugins:
+  - name: "kubernetes"
+    repository: "https://github.com/corynth/plugins"
+    version: "v1.2.0"
+    path: "kubernetes"

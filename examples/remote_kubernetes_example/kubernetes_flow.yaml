@@ -1,0 +1,122 @@
+flow:
+  name: "kubernetes_deployment_flow"
+  description: "Deploy and manage an application on Kubernetes"
+  steps:
+    - name: "create_namespace"
+      plugin: "kubernetes"
+      action: "apply"
+      params:
+        manifest: |
+          apiVersion: v1
+          kind: Namespace
+          metadata:
+            name: corynth-demo
+        wait: true
+    
+    - name: "deploy_application"
+      plugin: "kubernetes"
+      action: "apply"
+      params:
+        manifest: |
+          apiVersion: apps/v1
+          kind: Deployment
+          metadata:
+            name: demo-app
+            namespace: corynth-demo
+            labels:
+              app: demo-app
+          spec:
+            replicas: 2
+            selector:
+              matchLabels:
+                app: demo-app
+            template:
+              metadata:
+                labels:
+                  app: demo-app
+              spec:
+                containers:
+                - name: demo-app
+                  image: nginx:latest
+                  ports:
+                  - containerPort: 80
+                  resources:
+                    limits:
+                      cpu: "0.5"
+                      memory: "512Mi"
+                    requests:
+                      cpu: "0.2"
+                      memory: "256Mi"
+        namespace: "corynth-demo"
+        wait: true
+      depends_on:
+        - step: "create_namespace"
+          status: "success"
+    
+    - name: "create_service"
+      plugin: "kubernetes"
+      action: "apply"
+      params:
+        manifest: |
+          apiVersion: v1
+          kind: Service
+          metadata:
+            name: demo-app-service
+            namespace: corynth-demo
+          spec:
+            selector:
+              app: demo-app
+            ports:
+            - port: 80
+              targetPort: 80
+            type: ClusterIP
+        namespace: "corynth-demo"
+        wait: true
+      depends_on:
+        - step: "deploy_application"
+          status: "success"
+    
+    - name: "verify_deployment"
+      plugin: "kubernetes"
+      action: "get"
+      params:
+        resource: "pods"
+        namespace: "corynth-demo"
+        selector: "app=demo-app"
+        output: "wide"
+      depends_on:
+        - step: "create_service"
+          status: "success"
+    
+    - name: "check_pod_logs"
+      plugin: "kubernetes"
+      action: "logs"
+      params:
+        pod: "$(kubectl get pods -n corynth-demo -l app=demo-app -o jsonpath='{.items[0].metadata.name}')"
+        namespace: "corynth-demo"
+        tail: 10
+      depends_on:
+        - step: "verify_deployment"
+          status: "success"
+    
+    - name: "execute_command_in_pod"
+      plugin: "kubernetes"
+      action: "exec"
+      params:
+        pod: "$(kubectl get pods -n corynth-demo -l app=demo-app -o jsonpath='{.items[0].metadata.name}')"
+        namespace: "corynth-demo"
+        command: "nginx -v"
+      depends_on:
+        - step: "check_pod_logs"
+          status: "success"
+    
+    - name: "cleanup_resources"
+      plugin: "kubernetes"
+      action: "delete"
+      params:
+        resource: "namespace"
+        name: "corynth-demo"
+        wait: true
+      depends_on:
+        - step: "execute_command_in_pod"
+          status: "success"

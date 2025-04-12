@@ -2,6 +2,7 @@ package engine
 
 import (
 	"fmt"
+	"os"
 	"path/filepath"
 	"plugin"
 	"time"
@@ -16,6 +17,7 @@ type PluginManagerImpl struct {
 	corePlugins map[string]Plugin
 	remotePlugins map[string]Plugin
 	pluginDir string
+	downloader *PluginDownloader
 }
 
 // NewPluginManager creates a new PluginManagerImpl
@@ -24,6 +26,7 @@ func NewPluginManager(pluginDir string) *PluginManagerImpl {
 		corePlugins: make(map[string]Plugin),
 		remotePlugins: make(map[string]Plugin),
 		pluginDir: pluginDir,
+		downloader: NewPluginDownloader(pluginDir),
 	}
 }
 
@@ -150,9 +153,50 @@ func (a *ansiblePluginAdapter) Execute(action string, params map[string]interfac
 
 // loadRemotePlugins loads remote plugins from the plugin directory
 func (m *PluginManagerImpl) loadRemotePlugins() error {
-	// This is a placeholder for actual remote plugin loading logic
-	// In a real implementation, this would load plugins from the plugin directory
-	// based on the plugin manifest
+	// Look for plugins.yaml in the current directory
+	manifestPath := "plugins.yaml"
+	if _, err := os.Stat(manifestPath); os.IsNotExist(err) {
+		// If not found, try in the plugin directory
+		manifestPath = filepath.Join(m.pluginDir, "plugins.yaml")
+		if _, err := os.Stat(manifestPath); os.IsNotExist(err) {
+			// No manifest found, nothing to do
+			return nil
+		}
+	}
+
+	// Load the plugin manifest
+	manifest, err := m.downloader.LoadPluginManifest(manifestPath)
+	if err != nil {
+		return fmt.Errorf("error loading plugin manifest: %w", err)
+	}
+
+	// Download and load each plugin
+	for _, pluginInfo := range manifest.Plugins {
+		// Check if the plugin is already loaded
+		if _, ok := m.remotePlugins[pluginInfo.Name]; ok {
+			continue
+		}
+
+		// Check if the plugin is already downloaded
+		pluginPath := filepath.Join(m.pluginDir, pluginInfo.Name, pluginInfo.Name+".so")
+		if _, err := os.Stat(pluginPath); os.IsNotExist(err) {
+			// Plugin not downloaded, download it
+			if err := m.downloader.DownloadPlugin(pluginInfo); err != nil {
+				fmt.Printf("Warning: error downloading plugin %s: %s\n", pluginInfo.Name, err)
+				continue
+			}
+		}
+
+		// Load the plugin
+		plugin, err := m.LoadPlugin(pluginInfo.Name)
+		if err != nil {
+			fmt.Printf("Warning: error loading plugin %s: %s\n", pluginInfo.Name, err)
+			continue
+		}
+
+		// Store the plugin
+		m.remotePlugins[pluginInfo.Name] = plugin
+	}
 
 	return nil
 }
@@ -170,7 +214,12 @@ func (m *PluginManagerImpl) LoadPlugin(name string) (Plugin, error) {
 	}
 
 	// Try to load it as a remote plugin
-	pluginPath := filepath.Join(m.pluginDir, name+".so")
+	pluginPath := filepath.Join(m.pluginDir, name, name+".so")
+	if _, err := os.Stat(pluginPath); os.IsNotExist(err) {
+		// Try the old path format for backward compatibility
+		pluginPath = filepath.Join(m.pluginDir, name+".so")
+	}
+	
 	p, err := plugin.Open(pluginPath)
 	if err != nil {
 		return nil, fmt.Errorf("error loading plugin %s: %w", name, err)

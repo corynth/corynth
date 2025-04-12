@@ -1,0 +1,27 @@
+# Build artifacts
+/build/
+*.so
+*.o
+*.a
+*.dylib
+
+# Test artifacts
+/test_kubernetes/
+
+# Go specific
+*.exe
+*.test
+*.prof
+*.out
+/vendor/
+
+# IDE specific files
+.idea/
+.vscode/
+*.swp
+*.swo
+*~
+
+# OS specific files
+.DS_Store
+Thumbs.db
