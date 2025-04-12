@@ -1,8 +1,37 @@
-# Corynth
+# 🚀 Corynth
 
 Corynth is a powerful automation orchestration tool that enables users to define, plan, and execute sequential workflows through declarative YAML configurations. Built with Go, Corynth provides a familiar experience to Terraform users by following the init/plan/apply pattern while offering advanced automation capabilities.
 
 ![Corynth Logo](docs/images/corynth-logo.png)
+
+## 📥 Installation
+
+### From Source
+
+```bash
+# Clone the repository
+git clone https://github.com/corynth/corynth.git
+cd corynth
+
+# Build the binary
+go build -o corynth
+
+# Install the binary
+sudo mv corynth /usr/local/bin/
+```
+
+### From Releases
+
+```bash
+# Download the latest release (replace X.Y.Z with the version)
+curl -LO https://github.com/corynth/corynth/releases/download/vX.Y.Z/corynth-linux-amd64
+
+# Make it executable
+chmod +x corynth-linux-amd64
+
+# Move to your PATH
+sudo mv corynth-linux-amd64 /usr/local/bin/corynth
+```
 
 ## 🎯 Core Value Proposition
 
@@ -234,17 +263,50 @@ Actions:
 
 ## 📚 Documentation
 
-- [Getting Started](docs/getting_started.md)
-- [Plugin Development](docs/plugin_development.md)
-- [Advanced Flow Configuration](docs/advanced_flows.md)
-- [State Management](docs/state_management.md)
+- [🚀 Getting Started](docs/getting_started.md) - Basic usage guide
+- [🔌 Plugin Development](docs/plugin_development.md) - How to create custom plugins
+- [🌊 Advanced Flow Configuration](docs/advanced_flows.md) - Advanced flow configuration
+- [💾 State Management](docs/state_management.md) - State tracking and management
 
 ## 🧪 Testing
 
 ```bash
+# Run all tests
 go test ./...
+
+# Run tests with coverage
+go test ./... -coverprofile=coverage.out
+go tool cover -html=coverage.out
 ```
+
+## 🚀 Quick Start
+
+```bash
+# Initialize a new project
+corynth init my_project
+
+# Plan the execution
+corynth plan my_project
+
+# Apply the flows
+corynth apply my_project
+```
+
+## 🤝 Contributing
+
+Contributions are welcome! Please feel free to submit a Pull Request.
+
+1. Fork the repository
+2. Create your feature branch (`git checkout -b feature/amazing-feature`)
+3. Commit your changes (`git commit -m '✨ Add some amazing feature'`)
+4. Push to the branch (`git push origin feature/amazing-feature`)
+5. Open a Pull Request
 
 ## 📄 License
 
 This project is licensed under the MIT License - see the [LICENSE](LICENSE) file for details.
+
+## 🙏 Acknowledgements
+
+- Inspired by Terraform's workflow model
+- Built with Go

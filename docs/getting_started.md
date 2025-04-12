@@ -1,6 +1,6 @@
 # Getting Started with Corynth
 
-Corynth is a powerful automation orchestration tool that enables users to define, plan, and execute sequential workflows through declarative YAML configurations. Built with Go, Corynth provides a familiar experience to Terraform users by following the init/plan/apply pattern while offering advanced automation capabilities.
+Corynth is a powerful automation tool that enables users to define, plan, and execute sequential workflows through declarative YAML configurations. Built with Go, Corynth provides a familiar experience to Terraform users by following the init/plan/apply pattern while offering advanced automation capabilities.
 
 ## Installation
 
@@ -21,6 +21,25 @@ Corynth is a powerful automation orchestration tool that enables users to define
 2. Build the binary:
    ```bash
    go build -o corynth
+   ```
+
+3. Install the binary:
+   ```bash
+   sudo mv corynth /usr/local/bin/
+   ```
+
+### Installing from Releases
+
+1. Download the latest release for your platform from the [releases page](https://github.com/corynth/corynth/releases).
+
+2. Make the binary executable:
+   ```bash
+   chmod +x corynth
+   ```
+
+3. Move the binary to your PATH:
+   ```bash
+   sudo mv corynth /usr/local/bin/
    ```
 
 3. Install the binary:

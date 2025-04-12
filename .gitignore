@@ -4,7 +4,9 @@
 *.dll
 *.so
 *.dylib
-corynth
+/corynth
+# Include release binaries
+!releases/
 
 # Test binary, built with `go test -c`
 *.test
