@@ -1,0 +1,149 @@
+apiVersion: apps/v1
+kind: Deployment
+metadata:
+  name: corynth
+  namespace: corynth-system
+  labels:
+    app: corynth
+    version: v1.0.0
+spec:
+  replicas: 1
+  selector:
+    matchLabels:
+      app: corynth
+  template:
+    metadata:
+      labels:
+        app: corynth
+        version: v1.0.0
+    spec:
+      serviceAccountName: corynth
+      securityContext:
+        runAsNonRoot: true
+        runAsUser: 1000
+        fsGroup: 1000
+      containers:
+      - name: corynth
+        image: ghcr.io/corynth/corynth:latest
+        imagePullPolicy: IfNotPresent
+        command: ["corynth"]
+        args: ["server", "--port", "8080"]
+        ports:
+        - containerPort: 8080
+          name: http
+          protocol: TCP
+        env:
+        - name: CORYNTH_LOG_LEVEL
+          value: "info"
+        - name: CORYNTH_STATE_BACKEND
+          value: "kubernetes"
+        resources:
+          requests:
+            memory: "128Mi"
+            cpu: "100m"
+          limits:
+            memory: "512Mi"
+            cpu: "500m"
+        livenessProbe:
+          httpGet:
+            path: /healthz
+            port: http
+          initialDelaySeconds: 10
+          periodSeconds: 30
+        readinessProbe:
+          httpGet:
+            path: /readyz
+            port: http
+          initialDelaySeconds: 5
+          periodSeconds: 10
+        volumeMounts:
+        - name: config
+          mountPath: /etc/corynth
+          readOnly: true
+        - name: plugins
+          mountPath: /var/lib/corynth/plugins
+        - name: cache
+          mountPath: /var/cache/corynth
+      volumes:
+      - name: config
+        configMap:
+          name: corynth-config
+      - name: plugins
+        emptyDir: {}
+      - name: cache
+        emptyDir: {}
+---
+apiVersion: v1
+kind: Service
+metadata:
+  name: corynth
+  namespace: corynth-system
+  labels:
+    app: corynth
+spec:
+  type: ClusterIP
+  selector:
+    app: corynth
+  ports:
+  - port: 8080
+    targetPort: http
+    protocol: TCP
+    name: http
+---
+apiVersion: v1
+kind: ServiceAccount
+metadata:
+  name: corynth
+  namespace: corynth-system
+---
+apiVersion: rbac.authorization.k8s.io/v1
+kind: ClusterRole
+metadata:
+  name: corynth
+rules:
+- apiGroups: [""]
+  resources: ["configmaps", "secrets"]
+  verbs: ["get", "list", "watch", "create", "update", "patch"]
+- apiGroups: ["batch"]
+  resources: ["jobs"]
+  verbs: ["get", "list", "watch", "create", "update", "patch", "delete"]
+---
+apiVersion: rbac.authorization.k8s.io/v1
+kind: ClusterRoleBinding
+metadata:
+  name: corynth
+roleRef:
+  apiGroup: rbac.authorization.k8s.io
+  kind: ClusterRole
+  name: corynth
+subjects:
+- kind: ServiceAccount
+  name: corynth
+  namespace: corynth-system
+---
+apiVersion: v1
+kind: ConfigMap
+metadata:
+  name: corynth-config
+  namespace: corynth-system
+data:
+  corynth.yaml: |
+    server:
+      port: 8080
+      metrics_port: 9090
+    
+    orchestration:
+      max_concurrent_workflows: 10
+      default_timeout: 30m
+      
+    state:
+      backend: kubernetes
+      namespace: corynth-system
+      
+    plugins:
+      auto_install: true
+      registry_url: https://github.com/corynth/corynthplugins.git
+      
+    logging:
+      level: info
+      format: json

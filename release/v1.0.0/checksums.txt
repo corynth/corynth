@@ -1,0 +1,5 @@
+196caf446853ba088fec6482839bbfe9a5c482bcde4e672fa4c5d91750a00599  corynth-darwin-amd64.gz
+d848e641841943523a455ac4f8591fa463ed857624c6f92f3e8c2330ce74c5e4  corynth-darwin-arm64.gz
+f3b6cc5b1a7332cb5373d2fb00641de699b48ffcaea1405014373223f245c1e4  corynth-linux-amd64.gz
+d43877df0cc44cc5d37a3a5f2281aff8a8db5b1fd6a7f729aa6f8f2f44a3ac56  corynth-linux-arm64.gz
+7c2c7ffe8199ee46c1adb0c22bf3b8662209ed278f4e74437c8d265a9970e8eb  corynth-windows-amd64.exe.gz

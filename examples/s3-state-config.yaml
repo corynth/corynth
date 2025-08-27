@@ -1,0 +1,42 @@
+# Example Corynth configuration with S3 state backend
+enabled: true
+
+# State management using S3
+state:
+  backend: "s3"
+  backend_config:
+    bucket: "my-corynth-state-bucket"
+    key_prefix: "corynth/state/"
+    region: "us-east-1"
+    # Optional: custom S3 endpoint for MinIO or other S3-compatible services
+    # endpoint: "http://localhost:9000"
+    # Optional: custom credentials (prefer IAM roles or env vars)
+    # access_key: "YOUR_ACCESS_KEY"
+    # secret_key: "YOUR_SECRET_KEY"
+  encryption: true
+  max_history: 100
+  cleanup_interval: "24h"
+
+# Execution limits
+execution:
+  max_concurrent: 5
+  max_concurrent_dependencies: 3
+  max_concurrent_triggers: 2
+  default_timeout: "30m"
+  dependency_timeout: "10m"
+  trigger_timeout: "5m"
+
+# Retry configuration
+retry:
+  default_max_attempts: 3
+  default_delay: "5s"
+  default_backoff: "exponential"
+  max_backoff_delay: "5m"
+
+# Logging and observability
+logging:
+  level: "info"
+  format: "text"
+  structured_logging: true
+  enable_metrics: true
+  metrics_endpoint: ":9090"
