@@ -785,18 +785,26 @@ func (m *Manager) fixGoModPaths(goModPath string) error {
 	// Replace the incorrect path with the correct corynth source path
 	contentStr := string(content)
 	
-	// Fix common wrong patterns
+	// Fix common wrong patterns for both corynth and corynth-dist
 	patterns := []string{
 		"../../../corynth-dist",
 		"../../../../corynth-dist", 
 		"../../corynth-dist",
 		"../corynth-dist",
+		"../../../corynth",
+		"../../../../corynth", 
+		"../../corynth",
+		"../corynth",
 	}
 	
 	for _, pattern := range patterns {
+		// Fix both corynth and corynth-dist replace directives
 		contentStr = strings.ReplaceAll(contentStr, 
 			fmt.Sprintf("replace github.com/corynth/corynth => %s", pattern),
 			fmt.Sprintf("replace github.com/corynth/corynth => %s", corynthDir))
+		contentStr = strings.ReplaceAll(contentStr, 
+			fmt.Sprintf("replace github.com/corynth/corynth-dist => %s", pattern),
+			fmt.Sprintf("replace github.com/corynth/corynth-dist => %s", corynthDir))
 	}
 	
 	// Fix pkg/plugin specific patterns (convert to full module import)
@@ -805,6 +813,10 @@ func (m *Manager) fixGoModPaths(goModPath string) error {
 		"../../../../corynth/pkg/plugin",
 		"../../corynth/pkg/plugin", 
 		"../corynth/pkg/plugin",
+		"../../../corynth-dist/pkg/plugin",
+		"../../../../corynth-dist/pkg/plugin",
+		"../../corynth-dist/pkg/plugin", 
+		"../corynth-dist/pkg/plugin",
 	}
 	
 	// Also fix the current broken pattern from remote plugins
@@ -830,6 +842,28 @@ func (m *Manager) fixGoModPaths(goModPath string) error {
 	contentStr = strings.ReplaceAll(contentStr,
 		"require github.com/corynth/corynth/pkg/plugin",
 		"require github.com/corynth/corynth")
+	
+	// Fix corynth-dist require statements too - use actual working directory for replace
+	contentStr = strings.ReplaceAll(contentStr,
+		"require github.com/corynth/corynth-dist/pkg/plugin v0.0.0-20240101000000-000000000000",
+		"require github.com/corynth/corynth v0.0.0-00010101000000-000000000000")
+	contentStr = strings.ReplaceAll(contentStr,
+		"github.com/corynth/corynth-dist/pkg/plugin v0.0.0-20240101000000-000000000000",
+		"github.com/corynth/corynth v0.0.0-00010101000000-000000000000")
+	contentStr = strings.ReplaceAll(contentStr,
+		"require github.com/corynth/corynth-dist/pkg/plugin",
+		"require github.com/corynth/corynth")
+	contentStr = strings.ReplaceAll(contentStr,
+		"github.com/corynth/corynth-dist v0.0.0-20240101000000-000000000000",
+		"github.com/corynth/corynth v0.0.0-00010101000000-000000000000")
+	
+	// Remove the fake version requirement entirely and use replace directive only
+	contentStr = strings.ReplaceAll(contentStr,
+		"require github.com/corynth/corynth v0.0.0-00010101000000-000000000000",
+		"")
+	contentStr = strings.ReplaceAll(contentStr,
+		"github.com/corynth/corynth v0.0.0-00010101000000-000000000000",
+		"")
 	
 	// Write back the fixed content
 	return os.WriteFile(goModPath, []byte(contentStr), 0644)
@@ -903,6 +937,11 @@ func (m *Manager) fixPluginGoPaths(pluginGoPath string) error {
 	// Fix common import path issues
 	contentStr = strings.ReplaceAll(contentStr,
 		`"github.com/corynth/corynth/src/pkg/plugin"`,
+		`"github.com/corynth/corynth/pkg/plugin"`)
+	
+	// Fix corynth-dist import paths to use corynth
+	contentStr = strings.ReplaceAll(contentStr,
+		`"github.com/corynth/corynth-dist/pkg/plugin"`,
 		`"github.com/corynth/corynth/pkg/plugin"`)
 	
 	// Write back the fixed content
