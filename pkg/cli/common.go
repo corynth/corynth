@@ -41,10 +41,10 @@ func loadConfig(configPath string) (*config.Config, error) {
 	return cfg, nil
 }
 
-// initializePluginManager initializes the plugin manager
+// initializePluginManager initializes the plugin manager (using gRPC v2 under the hood)
 func initializePluginManager(cfg *config.Config) (*plugin.Manager, error) {
-	// Default paths
-	pluginPath := ".corynth/plugins"
+	// Default paths - check both bin/plugins (local dev) and .corynth/plugins (installed)
+	pluginPaths := []string{"bin/plugins", ".corynth/plugins"}
 	cachePath := ".corynth/cache"
 	autoInstall := true
 
@@ -52,13 +52,26 @@ func initializePluginManager(cfg *config.Config) (*plugin.Manager, error) {
 	if cfg.Plugins != nil {
 		autoInstall = cfg.Plugins.AutoInstall
 		if cfg.Plugins.LocalPath != "" {
-			pluginPath = cfg.Plugins.LocalPath
+			pluginPaths = []string{cfg.Plugins.LocalPath}
 		}
 		if cfg.Plugins.Cache != nil && cfg.Plugins.Cache.Path != "" {
 			cachePath = cfg.Plugins.Cache.Path
 		}
 	}
 
+	// Use the first existing plugin path
+	var pluginPath string
+	for _, path := range pluginPaths {
+		if info, err := os.Stat(path); err == nil && info.IsDir() {
+			pluginPath = path
+			break
+		}
+	}
+	if pluginPath == "" {
+		pluginPath = pluginPaths[0] // Default to first if none exist
+	}
+
+	// Create standard manager with gRPC support
 	manager := plugin.NewManager(pluginPath, cachePath, autoInstall)
 
 	// Add configured repositories

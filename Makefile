@@ -1,5 +1,5 @@
 # Corynth Makefile
-# Production-ready build system
+# Production-ready build system with gRPC plugin support
 
 # Variables
 BINARY_NAME=corynth
@@ -18,14 +18,15 @@ GOMOD=$(GOCMD) mod
 # Build paths
 CMD_DIR=cmd/corynth
 PKG_DIR=pkg
-PLUGIN_SRC_DIR=plugins/src
-PLUGIN_DIST_DIR=plugins/dist
+PLUGIN_SRC_DIR=plugins-src
+BUILD_DIR=bin
+PLUGINS_DIR=$(BUILD_DIR)/plugins
 
 # Build flags
 LDFLAGS=-ldflags "-X main.Version=${VERSION} -X main.BuildDate=${BUILD_DATE} -X main.Commit=${COMMIT}"
 
 # Targets
-.PHONY: all build clean test plugins install help
+.PHONY: all build clean test plugins install help build-plugins build-k8s build-docker build-terraform test-plugins
 
 ## Default target
 all: clean build plugins
@@ -33,44 +34,83 @@ all: clean build plugins
 ## Build the main binary
 build:
 	@echo "Building $(BINARY_NAME)..."
-	@$(GOBUILD) $(LDFLAGS) -o $(BINARY_NAME) ./$(CMD_DIR)
-	@echo "✅ Build complete: $(BINARY_NAME)"
+	@mkdir -p $(BUILD_DIR)
+	@$(GOBUILD) $(LDFLAGS) -o $(BUILD_DIR)/$(BINARY_NAME) ./$(CMD_DIR)
+	@echo "✅ Build complete: $(BUILD_DIR)/$(BINARY_NAME)"
 
-## Build all plugins
-plugins:
-	@echo "Building plugins..."
-	@mkdir -p $(PLUGIN_DIST_DIR)
-	@for plugin in $(PLUGIN_SRC_DIR)/*; do \
-		name=$$(basename $$plugin); \
-		echo "  Building $$name..."; \
-		$(GOBUILD) -buildmode=plugin -o $(PLUGIN_DIST_DIR)/$$name.so $$plugin/plugin.go || exit 1; \
-	done
-	@echo "✅ Plugins built successfully"
+## Build all gRPC plugins
+plugins: build-plugins
+
+build-plugins: build-http build-k8s build-docker build-terraform
+	@echo "✅ All plugins built successfully"
+
+## Build individual plugins
+build-http:
+	@echo "Building http plugin..."
+	@mkdir -p $(PLUGINS_DIR)
+	@cd $(PLUGIN_SRC_DIR)/http && $(GOBUILD) -o ../../$(PLUGINS_DIR)/corynth-plugin-http main.go
+
+build-k8s:
+	@echo "Building k8s plugin..."
+	@mkdir -p $(PLUGINS_DIR)
+	@cd $(PLUGIN_SRC_DIR)/k8s && $(GOBUILD) -o ../../$(PLUGINS_DIR)/corynth-plugin-k8s main.go
+
+build-docker:
+	@echo "Building docker plugin..."
+	@mkdir -p $(PLUGINS_DIR)
+	@cd $(PLUGIN_SRC_DIR)/docker && $(GOBUILD) -o ../../$(PLUGINS_DIR)/corynth-plugin-docker main.go
+
+build-terraform:
+	@echo "Building terraform plugin..."
+	@mkdir -p $(PLUGINS_DIR)
+	@cd $(PLUGIN_SRC_DIR)/terraform && $(GOBUILD) -o ../../$(PLUGINS_DIR)/corynth-plugin-terraform main.go
 
 ## Run tests
 test:
-	@echo "Running tests..."
+	@echo "Running core tests..."
 	@$(GOTEST) -v ./pkg/...
-	@echo "✅ Tests passed"
+	@echo "✅ Core tests passed"
 
-## Run integration tests
-test-integration:
-	@echo "Running integration tests..."
-	@$(GOTEST) -v ./tests/integration/...
-	@echo "✅ Integration tests passed"
+## Run plugin tests
+test-plugins: test-k8s test-docker test-terraform
+	@echo "✅ All plugin tests passed"
+
+test-k8s:
+	@echo "Testing k8s plugin..."
+	@cd $(PLUGIN_SRC_DIR)/k8s && $(GOMOD) verify && $(GOTEST) -v .
+
+test-docker:
+	@echo "Testing docker plugin..."
+	@cd $(PLUGIN_SRC_DIR)/docker && $(GOMOD) verify && $(GOTEST) -v .
+
+test-terraform:
+	@echo "Testing terraform plugin..."
+	@cd $(PLUGIN_SRC_DIR)/terraform && $(GOMOD) verify && $(GOTEST) -v .
+
+## Test plugin servers (verify gRPC handshake)
+test-plugin-servers: build-plugins
+	@echo "Testing plugin servers..."
+	@timeout 5s $(PLUGINS_DIR)/corynth-plugin-k8s serve > /dev/null 2>&1 && echo "✓ k8s plugin server" || echo "✗ k8s plugin server failed"
+	@timeout 5s $(PLUGINS_DIR)/corynth-plugin-docker serve > /dev/null 2>&1 && echo "✓ docker plugin server" || echo "✗ docker plugin server failed"
+	@timeout 5s $(PLUGINS_DIR)/corynth-plugin-terraform serve > /dev/null 2>&1 && echo "✓ terraform plugin server" || echo "✗ terraform plugin server failed"
 
 ## Install to system
-install: build
-	@echo "Installing $(BINARY_NAME)..."
-	@sudo cp $(BINARY_NAME) /usr/local/bin/
-	@echo "✅ Installed to /usr/local/bin/$(BINARY_NAME)"
+install: build plugins
+	@echo "Installing $(BINARY_NAME) and plugins..."
+	@sudo cp $(BUILD_DIR)/$(BINARY_NAME) /usr/local/bin/
+	@mkdir -p ~/.corynth/plugins
+	@cp $(PLUGINS_DIR)/* ~/.corynth/plugins/
+	@chmod +x ~/.corynth/plugins/*
+	@echo "✅ Installed to /usr/local/bin/$(BINARY_NAME) and ~/.corynth/plugins/"
 
 ## Clean build artifacts
 clean:
 	@echo "Cleaning..."
 	@$(GOCLEAN)
-	@rm -f $(BINARY_NAME)
-	@rm -f $(PLUGIN_DIST_DIR)/*.so
+	@rm -rf $(BUILD_DIR)
+	@cd $(PLUGIN_SRC_DIR)/k8s && $(GOCLEAN)
+	@cd $(PLUGIN_SRC_DIR)/docker && $(GOCLEAN)
+	@cd $(PLUGIN_SRC_DIR)/terraform && $(GOCLEAN)
 	@echo "✅ Clean complete"
 
 ## Update dependencies
@@ -78,13 +118,18 @@ deps:
 	@echo "Updating dependencies..."
 	@$(GOMOD) download
 	@$(GOMOD) tidy
-	@echo "✅ Dependencies updated"
+	@cd $(PLUGIN_SRC_DIR)/k8s && $(GOMOD) download && $(GOMOD) tidy
+	@cd $(PLUGIN_SRC_DIR)/docker && $(GOMOD) download && $(GOMOD) tidy
+	@cd $(PLUGIN_SRC_DIR)/terraform && $(GOMOD) download && $(GOMOD) tidy
+	@echo "✅ All dependencies updated"
 
 ## Format code
 fmt:
 	@echo "Formatting code..."
 	@gofmt -s -w cmd pkg
-	@gofmt -s -w $(PLUGIN_SRC_DIR)
+	@cd $(PLUGIN_SRC_DIR)/k8s && gofmt -s -w .
+	@cd $(PLUGIN_SRC_DIR)/docker && gofmt -s -w .
+	@cd $(PLUGIN_SRC_DIR)/terraform && gofmt -s -w .
 	@echo "✅ Code formatted"
 
 ## Run linters

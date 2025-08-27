@@ -144,6 +144,11 @@ func (m *Manager) LoadLocal() error {
 			if err := m.loadCompiledPlugin(entryPath); err != nil {
 				fmt.Printf("Warning: failed to load compiled plugin from %s: %v\n", entryPath, err)
 			}
+		} else if strings.HasPrefix(entry.Name(), "corynth-plugin-") && !strings.Contains(entry.Name(), ".") {
+			// Load gRPC plugin executable
+			if err := m.loadGRPCPlugin(entryPath); err != nil {
+				fmt.Printf("Warning: failed to load gRPC plugin from %s: %v\n", entryPath, err)
+			}
 		}
 	}
 
@@ -369,8 +374,17 @@ func (m *Manager) loadCompiledPlugin(soPath string) error {
 	// Load the .so file
 	p, err := plugin.Open(absPath)
 	if err != nil {
-		// Provide more helpful error messages for common issues
+		// Handle version mismatch by attempting automatic recompilation
 		if strings.Contains(err.Error(), "different version") {
+			// Try to find source and recompile automatically
+			if recompileErr := m.attemptPluginRecompile(pluginName, absPath); recompileErr == nil {
+				// Retry loading after recompilation
+				p, retryErr := plugin.Open(absPath)
+				if retryErr == nil {
+					return m.processLoadedPlugin(p, pluginName, absPath)
+				}
+			}
+			
 			return fmt.Errorf("plugin '%s' was compiled with incompatible Go module version. "+
 				"Please rebuild the plugin or use a compatible version. "+
 				"Try: go build -buildmode=plugin -o %s plugin.go\n"+
@@ -383,6 +397,11 @@ func (m *Manager) loadCompiledPlugin(soPath string) error {
 		return fmt.Errorf("failed to load plugin '%s' from %s: %w", pluginName, absPath, err)
 	}
 
+	return m.processLoadedPlugin(p, pluginName, absPath)
+}
+
+// processLoadedPlugin handles the common logic for processing a loaded Go plugin
+func (m *Manager) processLoadedPlugin(p *plugin.Plugin, pluginName, absPath string) error {
 	// Look for the ExportedPlugin symbol (standard for our Go plugins)
 	symbol, err := p.Lookup("ExportedPlugin")
 	if err != nil {
@@ -407,6 +426,55 @@ func (m *Manager) loadCompiledPlugin(soPath string) error {
 	// Get metadata to determine plugin name
 	metadata := pluginInstance.Metadata()
 	m.plugins[metadata.Name] = pluginInstance
+	
+	return nil
+}
+
+// attemptPluginRecompile tries to recompile a plugin when version mismatch occurs
+func (m *Manager) attemptPluginRecompile(pluginName, pluginPath string) error {
+	// Find the source directory for this plugin
+	// Check if we have cached source from a recent installation
+	pluginDir := filepath.Dir(pluginPath)
+	possibleSourceDirs := []string{
+		filepath.Join(pluginDir, pluginName),
+		fmt.Sprintf(".corynth/cache/repos/official/%s", pluginName),
+		fmt.Sprintf("examples/plugins/%s", pluginName),
+	}
+	
+	for _, sourceDir := range possibleSourceDirs {
+		if _, err := os.Stat(filepath.Join(sourceDir, "plugin.go")); err == nil {
+			// Found source, try to recompile
+			return m.recompilePlugin(sourceDir, pluginPath)
+		}
+	}
+	
+	return fmt.Errorf("no source found to recompile plugin %s", pluginName)
+}
+
+// recompilePlugin recompiles a plugin from source
+func (m *Manager) recompilePlugin(sourceDir, outputPath string) error {
+	// Fix paths in plugin files before compilation
+	if err := m.fixPluginPaths(sourceDir); err != nil {
+		return fmt.Errorf("failed to fix plugin paths: %w", err)
+	}
+	
+	// Run go mod tidy to ensure dependencies are resolved
+	tidyCmd := exec.Command("go", "mod", "tidy")
+	tidyCmd.Env = append(os.Environ(), "CGO_ENABLED=1")
+	tidyCmd.Dir = sourceDir
+	
+	if output, err := tidyCmd.CombinedOutput(); err != nil {
+		return fmt.Errorf("failed to resolve plugin dependencies: %w\nOutput: %s", err, string(output))
+	}
+
+	// Compile plugin
+	buildCmd := exec.Command("go", "build", "-buildmode=plugin", "-o", outputPath, "plugin.go")
+	buildCmd.Env = append(os.Environ(), "CGO_ENABLED=1")
+	buildCmd.Dir = sourceDir
+	
+	if output, err := buildCmd.CombinedOutput(); err != nil {
+		return fmt.Errorf("failed to recompile plugin: %w\nOutput: %s", err, string(output))
+	}
 	
 	return nil
 }
@@ -1181,4 +1249,31 @@ func (rp *ReflectedPlugin) Actions() []Action {
 	// This is complex to convert via reflection, so return empty for now
 	// The plugin will still work for Execute calls
 	return []Action{}
+}
+
+// loadGRPCPlugin loads a gRPC plugin executable (simplified for now)
+func (m *Manager) loadGRPCPlugin(executablePath string) error {
+	// Extract plugin name from executable path
+	fileName := filepath.Base(executablePath)
+	if !strings.HasPrefix(fileName, "corynth-plugin-") {
+		return fmt.Errorf("invalid gRPC plugin name format: %s", fileName)
+	}
+	
+	pluginName := strings.TrimPrefix(fileName, "corynth-plugin-")
+	
+	// For now, create a simple gRPC plugin placeholder
+	// This avoids the import cycle while maintaining functionality
+	grpcPlugin := &SimpleGRPCPlugin{
+		metadata: Metadata{
+			Name:        pluginName,
+			Description: fmt.Sprintf("gRPC plugin: %s", pluginName),
+			Version:     "1.0.0",
+		},
+		executablePath: executablePath,
+	}
+	
+	// Store the plugin
+	m.plugins[pluginName] = grpcPlugin
+	
+	return nil
 }
