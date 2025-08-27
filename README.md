@@ -16,10 +16,10 @@ Corynth is a production-ready workflow orchestration platform built in Go that e
 - **Auto-Installation** - Remote plugins automatically installed from GitHub
 
 ### Plugin System
-- **Built-in Plugins**: `git`, `slack` - Available immediately
-- **Remote Plugins**: `http`, `file`, `shell` - Auto-installed from repository
-- **Easy Development** - Scaffold new plugins with built-in generators
-- **Git-based Distribution** - Plugins distributed via GitHub repositories
+- **Built-in Plugin**: `shell` - Available immediately for system operations
+- **RPC Plugins**: `http`, `file`, `calculator` - Language-agnostic subprocess plugins
+- **Easy Development** - Python, Node.js, or any executable script
+- **Auto-discovery** - Plugins loaded on-demand from examples/plugins directory
 
 ### Advanced Features
 - **Boolean Logic** - Conditional step execution with boolean expressions and functions
@@ -270,12 +270,13 @@ Corynth is designed to support a plugin ecosystem for various infrastructure, co
 
 ### Plugin Categories
 
-#### Core Plugins (Built-in)
-- **git** - Git operations (clone, status, commit, push)
-- **slack** - Slack messaging and notifications
-- **shell** - Command execution and process management ✅ Working
-- **http** - HTTP/HTTPS client for REST API calls ✅ Working
-- **file** - File system operations (read, write, copy, move) ✅ Working
+#### Core Plugins
+- **shell** - Built-in command execution and process management ✅ Working
+
+#### RPC Plugins (Language-agnostic subprocess plugins)
+- **http** - HTTP/HTTPS client for REST API calls ✅ Working (Python)
+- **file** - File system operations (read, write, copy, move) ✅ Working (Python)  
+- **calculator** - Mathematical calculations and unit conversions ✅ Working (Python)
 
 #### System Operations (Remote)
 - **time** - Time-based operations and delays
@@ -309,14 +310,15 @@ Corynth is designed to support a plugin ecosystem for various infrastructure, co
 - **reporting** - Generate formatted reports, tables, and charts (Markdown, HTML, PDF)
 
 ### Plugin Status  
-- **Core Built-ins**: 6 essential plugins working (`git`, `slack`, `shell`, `http`, `file`, `reporting`)
+- **Built-in Plugins**: 1 essential plugin (`shell`) ✅ Working
+- **RPC Plugins**: 3 working plugins (`http`, `file`, `calculator`) ✅ Python-based subprocess plugins
 - **Template Processing**: ✅ Variable substitution working with `{{.Variables.name}}` syntax
-- **Report Generation**: ✅ Markdown, text, and JSON report formats supported
+- **Plugin Auto-discovery**: ✅ RPC plugins loaded on-demand from examples/plugins directory
 - **Boolean Logic**: ✅ Conditional step execution with `condition` expressions
 - **Loop Processing**: ✅ Iterate over lists, tuples, and objects with `loop` blocks
 - **Flow Control**: ✅ Advanced control flow with boolean functions (`and`, `or`, `not`, `if`)
 - **Parallel Execution**: ✅ Independent steps execute concurrently with proper dependency management
-- **Basic Workflow Functionality**: ✅ Fully operational for common use cases
+- **Cross-language Plugins**: ✅ Python, shell, and any executable script supported
 
 ### Plugin Discovery & Remote Installation
 

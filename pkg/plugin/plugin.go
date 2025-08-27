@@ -2,6 +2,7 @@ package plugin
 
 import (
 	"context"
+	"encoding/json"
 	"fmt"
 	"io"
 	"os"
@@ -152,19 +153,10 @@ func (m *Manager) LoadLocal() error {
 // loadBuiltinPlugins loads built-in plugins
 func (m *Manager) loadBuiltinPlugins() {
 	// Load only essential plugins by default
-	// Other plugins will be lazy-loaded on demand
-	
-	// Core plugins always available
-	m.plugins["git"] = NewGitPlugin()
-	m.plugins["slack"] = NewSlackPlugin()
-	
-	// Essential system plugins built-in to avoid dynamic loading issues
+	// Only shell plugin is built-in - all others are remote RPC/subprocess plugins
 	m.plugins["shell"] = NewShellPlugin()
-	m.plugins["http"] = NewHTTPPlugin()
-	m.plugins["file"] = NewFilePlugin()
-	m.plugins["reporting"] = &ReportingPlugin{}
 	
-	// Note: http, file, and other specialized plugins available via lazy loading
+	// All other plugins (http, file, git, slack, reporting) will be loaded as remote RPC plugins on demand
 }
 
 // tryLoadBuiltinPlugin attempts to lazy load a built-in plugin by name
@@ -177,8 +169,103 @@ func (m *Manager) tryLoadBuiltinPlugin(name string) bool {
 		return true
 	}
 	
-	// No additional builtin plugins - let git-based loading handle it
+	// Only shell is built-in - all others should be loaded as RPC plugins
+	if name == "shell" {
+		// Shell is already loaded during initialization
+		return true
+	}
+	
+	// All other plugins should be loaded as RPC/subprocess plugins
 	return false
+}
+
+// tryLoadRPCPlugin attempts to load a plugin as an RPC/subprocess plugin
+func (m *Manager) tryLoadRPCPlugin(name string) bool {
+	m.mu.Lock()
+	defer m.mu.Unlock()
+	
+	// Check if already loaded
+	if _, exists := m.plugins[name]; exists {
+		return true
+	}
+	
+	// Look for plugin script in examples/plugins directory
+	scriptPaths := []string{
+		fmt.Sprintf("examples/plugins/%s-plugin.py", name),
+		fmt.Sprintf("examples/plugins/%s-plugin.js", name),
+		fmt.Sprintf("examples/plugins/%s-plugin.sh", name),
+		fmt.Sprintf("examples/plugins/%s", name),
+	}
+	
+	for _, scriptPath := range scriptPaths {
+		if _, err := os.Stat(scriptPath); err == nil {
+			// Found executable script - create RPC plugin
+			metadata, actions, err := m.loadRPCPluginMetadata(scriptPath)
+			if err != nil {
+				continue
+			}
+			
+			plugin := &ScriptPlugin{
+				metadata:   metadata,
+				scriptPath: scriptPath,
+				actions:    actions,
+			}
+			
+			m.plugins[name] = plugin
+			return true
+		}
+	}
+	
+	return false
+}
+
+// loadRPCPluginMetadata loads metadata and actions from an RPC plugin script
+func (m *Manager) loadRPCPluginMetadata(scriptPath string) (Metadata, []Action, error) {
+	// Execute script with "metadata" action to get plugin info
+	cmd := exec.Command(scriptPath, "metadata")
+	output, err := cmd.Output()
+	if err != nil {
+		return Metadata{}, nil, fmt.Errorf("failed to get metadata: %w", err)
+	}
+	
+	var metadata Metadata
+	if err := json.Unmarshal(output, &metadata); err != nil {
+		return Metadata{}, nil, fmt.Errorf("invalid metadata JSON: %w", err)
+	}
+	
+	// Execute script with "actions" action to get available actions
+	cmd = exec.Command(scriptPath, "actions")
+	output, err = cmd.Output()
+	if err != nil {
+		return metadata, nil, fmt.Errorf("failed to get actions: %w", err)
+	}
+	
+	var actionsMap map[string]interface{}
+	if err := json.Unmarshal(output, &actionsMap); err != nil {
+		return metadata, nil, fmt.Errorf("invalid actions JSON: %w", err)
+	}
+	
+	// Convert actions map to Action structs
+	var actions []Action
+	for name, actionData := range actionsMap {
+		if actionMap, ok := actionData.(map[string]interface{}); ok {
+			action := Action{
+				Name:        name,
+				Description: getStringFromMap(actionMap, "description"),
+			}
+			actions = append(actions, action)
+		}
+	}
+	
+	return metadata, actions, nil
+}
+
+// Helper function to safely get string from map
+func getStringFromMap(m map[string]interface{}, key string) string {
+	if val, ok := m[key].(string); ok {
+		return val
+	}
+	return ""
 }
 
 // PluginConfig represents the complete plugin configuration
@@ -336,6 +423,17 @@ func (m *Manager) Get(name string) (Plugin, error) {
 
 	// Try to lazy load built-in plugin first
 	if m.tryLoadBuiltinPlugin(name) {
+		m.mu.RLock()
+		plugin, exists = m.plugins[name]
+		m.mu.RUnlock()
+		
+		if exists {
+			return plugin, nil
+		}
+	}
+
+	// Try to load as RPC plugin from local scripts
+	if m.tryLoadRPCPlugin(name) {
 		m.mu.RLock()
 		plugin, exists = m.plugins[name]
 		m.mu.RUnlock()
