@@ -331,12 +331,13 @@ The plugin installation system has been completely fixed and now supports:
 - **reporting** - Generate formatted reports, tables, and charts (Markdown, HTML, PDF)
 
 ### Plugin Status  
-- **Built-in Plugins**: 1 essential plugin (`shell`) ✅ Working
-- **gRPC Plugins**: 8 working plugins (`http`, `docker`, `terraform`, `k8s`, `llm`, `calculator`, `reporting`, `slack`) ✅ Production-grade compiled binaries
+- **Built-in Plugins**: 1 essential plugin (`shell`) ✅ Working (included in default installation)
+- **Installable Plugins**: 14+ production-grade plugins available for automated installation ✅ Zero pre-installed
 - **Template Processing**: ✅ Variable substitution working with `{{.Variables.name}}` syntax
 - **Plugin Auto-discovery**: ✅ gRPC plugins automatically discovered from `.corynth/plugins/` directory
 - **Automated Installation**: ✅ `corynth plugin install <name>` works with pre-compiled binaries
 - **Remote Repository**: ✅ 14+ plugins available from GitHub plugin registry
+- **Clean Default Installation**: ✅ Only shell plugin included by default, all others installed on-demand
 - **Boolean Logic**: ✅ Conditional step execution with `condition` expressions
 - **Loop Processing**: ✅ Iterate over lists, tuples, and objects with `loop` blocks
 - **Flow Control**: ✅ Advanced control flow with boolean functions (`and`, `or`, `not`, `if`)
@@ -354,10 +355,10 @@ corynth plugin discover
 corynth plugin list
 
 # Install remote plugins automatically - zero configuration needed
-corynth plugin install calculator    # ✓ Mathematical calculations
-corynth plugin install json-processor # ✓ JSON data processing
-corynth plugin install aws            # ✓ Amazon Web Services
-corynth plugin install kubernetes     # ✓ Kubernetes management
+corynth plugin install http          # HTTP/HTTPS client operations
+corynth plugin install docker        # Docker container management
+corynth plugin install terraform     # Infrastructure as Code operations
+corynth plugin install llm          # Large Language Model integration
 
 # Get plugin information
 corynth plugin info git
@@ -366,15 +367,15 @@ corynth plugin info git
 corynth plugin init my-plugin --type http
 ```
 
-**Remote Plugin Registry**: 14 total plugins available from [official plugin repository](https://github.com/corynth/corynth):
-- **http** - HTTP/HTTPS client for REST API calls ✅ Installed
-- **docker** - Docker container management and operations ✅ Installed
-- **terraform** - Infrastructure as Code operations ✅ Installed  
-- **k8s** - Kubernetes cluster management ✅ Installed
-- **llm** - Large Language Model integration ✅ Installed
-- **calculator** - Mathematical calculations and unit conversions ✅ Installed
-- **reporting** - Generate formatted reports and documents ✅ Installed
-- **slack** - Slack messaging and notifications ✅ Installed
+**Remote Plugin Registry**: 14 total plugins available from [official plugin repository](https://github.com/corynth/plugins):
+- **http** - HTTP/HTTPS client for REST API calls
+- **docker** - Docker container management and operations
+- **terraform** - Infrastructure as Code operations  
+- **k8s** - Kubernetes cluster management
+- **llm** - Large Language Model integration
+- **calculator** - Mathematical calculations and unit conversions
+- **reporting** - Generate formatted reports and documents
+- **slack** - Slack messaging and notifications
 
 ### Plugin Usage
 
