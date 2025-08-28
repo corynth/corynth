@@ -93,7 +93,7 @@ func initializePluginManager(cfg *config.Config) (*plugin.Manager, error) {
 	if !hasRepositories {
 		manager.AddRepository(plugin.Repository{
 			Name:     "official",
-			URL:      "https://github.com/corynth/corynthplugins",
+			URL:      "https://github.com/corynth/plugins",
 			Branch:   "main",
 			Priority: 1,
 		})

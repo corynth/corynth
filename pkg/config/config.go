@@ -274,7 +274,7 @@ func (c *Config) setDefaults() {
 			c.Plugins.Repositories = []PluginRepository{
 				{
 					Name:     "official",
-					URL:      "https://github.com/corynth/corynthplugins",
+					URL:      "https://github.com/corynth/plugins",
 					Branch:   "main",
 					Priority: 1,
 				},
@@ -311,7 +311,7 @@ func (c *Config) setDefaults() {
 			Repositories: []PluginRepository{
 				{
 					Name:     "official",
-					URL:      "https://github.com/corynth/corynthplugins",
+					URL:      "https://github.com/corynth/plugins",
 					Branch:   "main",
 					Priority: 1,
 				},
