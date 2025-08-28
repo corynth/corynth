@@ -620,8 +620,26 @@ func (m *Manager) installFromGit(repo Repository, pluginName string) error {
 		return m.loadCompiledPlugin(destSoPath)
 	}
 
-	// Look for plugin directory containing plugin.go (most common pattern)
-	pluginDirPath := filepath.Join(repoPath, pluginName)
+	// Look for pre-compiled binary in official/ subdirectory (specific plugin binary)
+	preCompiledPath := filepath.Join(repoPath, "official", pluginName, fmt.Sprintf("%s-plugin", pluginName))
+	if _, err := os.Stat(preCompiledPath); err == nil {
+		// Check if it's actually a binary (not a shell script)
+		if info, err := os.Stat(preCompiledPath); err == nil && info.Size() > 1000 {
+			// Copy pre-compiled binary to local path
+			destPath := filepath.Join(m.localPath, fmt.Sprintf("corynth-plugin-%s", pluginName))
+			if err := copyFile(preCompiledPath, destPath); err != nil {
+				return fmt.Errorf("failed to install pre-compiled plugin: %w", err)
+			}
+			
+			// Load the gRPC plugin
+			return m.loadGRPCPlugin(destPath)
+		}
+	}
+
+	// Skip generic "plugin" files as they are usually shell scripts that require runtime compilation
+
+	// Look for plugin directory containing plugin.go in official/ subdirectory
+	pluginDirPath := filepath.Join(repoPath, "official", pluginName)
 	goFilePath := filepath.Join(pluginDirPath, "plugin.go")
 	if _, err := os.Stat(goFilePath); err == nil {
 		// Compile Go plugin to .so file - use absolute path
@@ -656,7 +674,7 @@ func (m *Manager) installFromGit(repo Repository, pluginName string) error {
 	// Fallback to legacy source plugin directory structure
 	legacyPluginPath := filepath.Join(repoPath, "plugins", pluginName)
 	if _, err := os.Stat(legacyPluginPath); os.IsNotExist(err) {
-		return fmt.Errorf("plugin '%s' not found in repository (looked for .so file, %s/plugin.go, %s.go, and plugins/%s/)", pluginName, pluginName, pluginName, pluginName)
+		return fmt.Errorf("plugin '%s' not found in repository (looked for .so file, official/%s/%s-plugin binary, official/%s/plugin binary, official/%s/plugin.go source, %s.go, and plugins/%s/)", pluginName, pluginName, pluginName, pluginName, pluginName, pluginName, pluginName)
 	}
 	
 	pluginPath := legacyPluginPath

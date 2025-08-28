@@ -1,7 +1,6 @@
 #!/usr/bin/env python3
 """
-Corynth HTTP RPC Plugin - Python Implementation
-Handles HTTP requests via subprocess RPC interface
+Fixed Corynth HTTP RPC Plugin with proper type handling
 """
 import json
 import sys
@@ -66,7 +65,14 @@ class HttpPlugin:
     def _handle_get(self, params: Dict[str, Any]) -> Dict[str, Any]:
         url = params.get("url")
         headers = params.get("headers", {})
+        
+        # Fix: Convert timeout to proper numeric type
         timeout = params.get("timeout", 30)
+        if isinstance(timeout, str):
+            try:
+                timeout = int(timeout) if timeout.isdigit() else float(timeout)
+            except ValueError:
+                timeout = 30
         
         if not url:
             raise ValueError("url parameter is required")
@@ -83,7 +89,14 @@ class HttpPlugin:
         url = params.get("url")
         body = params.get("body", "")
         headers = params.get("headers", {})
+        
+        # Fix: Convert timeout to proper numeric type
         timeout = params.get("timeout", 30)
+        if isinstance(timeout, str):
+            try:
+                timeout = int(timeout) if timeout.isdigit() else float(timeout)
+            except ValueError:
+                timeout = 30
         
         if not url:
             raise ValueError("url parameter is required")
@@ -104,14 +117,11 @@ def main():
     action = sys.argv[1]
     
     # Read parameters from stdin
+    params = {}
     try:
-        params = json.loads(sys.stdin.read()) if sys.stdin.read() else {}
-        sys.stdin.seek(0)  # Reset for re-reading
-        params_data = sys.stdin.read().strip()
-        if params_data:
-            params = json.loads(params_data)
-        else:
-            params = {}
+        stdin_data = sys.stdin.read().strip()
+        if stdin_data:
+            params = json.loads(stdin_data)
     except json.JSONDecodeError:
         params = {}
     
