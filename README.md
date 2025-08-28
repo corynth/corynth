@@ -2,7 +2,7 @@
 
 [![License](https://img.shields.io/badge/License-Apache%202.0-blue.svg)](https://opensource.org/licenses/Apache-2.0)
 [![Go Version](https://img.shields.io/badge/Go-1.21+-blue.svg)](https://golang.org/doc/install)
-[![Release](https://img.shields.io/badge/Release-v1.0.0-green.svg)](#installation)
+[![Release](https://img.shields.io/badge/Release-v1.2.0-green.svg)](#installation)
 
 Corynth is a production-ready workflow orchestration platform built in Go that enables you to define, execute, and manage multi-step workflows using HCL (HashiCorp Configuration Language). Features a robust plugin-based architecture with bulletproof remote plugin installation.
 
@@ -16,10 +16,10 @@ Corynth is a production-ready workflow orchestration platform built in Go that e
 - **Auto-Installation** - Remote plugins automatically installed from GitHub
 
 ### Plugin System
-- **Built-in Plugin**: `shell` - Available immediately for system operations
-- **RPC Plugins**: `http`, `file`, `calculator` - Language-agnostic subprocess plugins
-- **Easy Development** - Python, Node.js, or any executable script
-- **Auto-discovery** - Plugins loaded on-demand from examples/plugins directory
+- **Built-in Plugin**: `shell` - Available immediately for system operations  
+- **gRPC Plugins**: `http`, `docker`, `terraform`, `k8s`, `llm` - Production-grade compiled plugins
+- **Automated Installation** - Pre-compiled binaries with zero-configuration setup
+- **Remote Discovery** - 14+ plugins available from GitHub plugin registry
 
 ### Advanced Features
 - **Boolean Logic** - Conditional step execution with boolean expressions and functions
@@ -43,7 +43,7 @@ curl -sSL https://raw.githubusercontent.com/corynth/corynth/main/install.sh | ba
 Or download a specific version:
 
 ```bash
-curl -sSL https://raw.githubusercontent.com/corynth/corynth/main/install.sh | VERSION=v1.0.0 bash
+curl -sSL https://raw.githubusercontent.com/corynth/corynth/main/install.sh | VERSION=v1.2.0 bash
 ```
 
 ### Download Pre-built Binaries
@@ -266,17 +266,38 @@ workflow "parallel-tasks" {
 
 ## 🔌 Plugin System
 
-Corynth is designed to support a plugin ecosystem for various infrastructure, container orchestration, cloud deployments, and automation tasks. The plugin system is currently in development.
+Corynth features a production-ready gRPC plugin system with automated installation and a growing ecosystem of plugins for infrastructure, container orchestration, cloud deployments, and automation tasks.
+
+### Plugin Architecture
+
+**gRPC-Based Design**: Plugins run as separate processes communicating via gRPC, ensuring:
+- **Process Isolation**: Plugin crashes don't affect main workflow engine
+- **Language Flexibility**: Plugins can be written in any language supporting gRPC  
+- **Performance**: Fast binary communication with minimal overhead
+- **Reliability**: Automatic plugin discovery and loading
+
+### Plugin Installation Fix (v1.2.0)
+
+The plugin installation system has been completely fixed and now supports:
+- **Automated Installation**: `corynth plugin install <name>` works with pre-compiled binaries
+- **Path Resolution**: Fixed path resolution for `official/` directory structure  
+- **Binary Detection**: Automatically detects and copies pre-compiled plugin binaries
+- **Zero Configuration**: No manual compilation or setup required
 
 ### Plugin Categories
 
 #### Core Plugins
 - **shell** - Built-in command execution and process management ✅ Working
 
-#### RPC Plugins (Language-agnostic subprocess plugins)
-- **http** - HTTP/HTTPS client for REST API calls ✅ Working (Python)
-- **file** - File system operations (read, write, copy, move) ✅ Working (Python)  
-- **calculator** - Mathematical calculations and unit conversions ✅ Working (Python)
+#### gRPC Plugins (Production-grade compiled plugins)
+- **http** - HTTP/HTTPS client for REST API calls ✅ Working (Go/gRPC)
+- **docker** - Docker container management and operations ✅ Working (Go/gRPC)
+- **terraform** - Infrastructure as Code operations ✅ Working (Go/gRPC)  
+- **k8s** - Kubernetes cluster management ✅ Working (Go/gRPC)
+- **llm** - Large Language Model integration ✅ Working (Go/gRPC)
+- **calculator** - Mathematical calculations and unit conversions ✅ Working
+- **reporting** - Generate formatted reports and documents ✅ Working
+- **slack** - Slack messaging and notifications ✅ Working
 
 #### System Operations (Remote)
 - **time** - Time-based operations and delays
@@ -311,14 +332,15 @@ Corynth is designed to support a plugin ecosystem for various infrastructure, co
 
 ### Plugin Status  
 - **Built-in Plugins**: 1 essential plugin (`shell`) ✅ Working
-- **RPC Plugins**: 3 working plugins (`http`, `file`, `calculator`) ✅ Python-based subprocess plugins
+- **gRPC Plugins**: 8 working plugins (`http`, `docker`, `terraform`, `k8s`, `llm`, `calculator`, `reporting`, `slack`) ✅ Production-grade compiled binaries
 - **Template Processing**: ✅ Variable substitution working with `{{.Variables.name}}` syntax
-- **Plugin Auto-discovery**: ✅ RPC plugins loaded on-demand from examples/plugins directory
+- **Plugin Auto-discovery**: ✅ gRPC plugins automatically discovered from `.corynth/plugins/` directory
+- **Automated Installation**: ✅ `corynth plugin install <name>` works with pre-compiled binaries
+- **Remote Repository**: ✅ 14+ plugins available from GitHub plugin registry
 - **Boolean Logic**: ✅ Conditional step execution with `condition` expressions
 - **Loop Processing**: ✅ Iterate over lists, tuples, and objects with `loop` blocks
 - **Flow Control**: ✅ Advanced control flow with boolean functions (`and`, `or`, `not`, `if`)
 - **Parallel Execution**: ✅ Independent steps execute concurrently with proper dependency management
-- **Cross-language Plugins**: ✅ Python, shell, and any executable script supported
 
 ### Plugin Discovery & Remote Installation
 
@@ -344,14 +366,15 @@ corynth plugin info git
 corynth plugin init my-plugin --type http
 ```
 
-**Remote Plugin Registry**: 18 total plugins available with 7+ installable from [corynthplugins repository](https://github.com/corynth/plugins):
-- **kubernetes** - Kubernetes cluster management and resource operations ⭐
-- **helm** - Helm package manager for Kubernetes applications ⭐  
-- **aws** - Amazon Web Services cloud operations and resource management ⭐
-- **calculator** - Mathematical calculations and unit conversions
-- **gcp** - Google Cloud Platform operations and resource management ⭐
-- **json-processor** - JSON parsing, manipulation, and validation  
-- **llm** - Large Language Model integration (OpenAI, Anthropic, Ollama) ⭐
+**Remote Plugin Registry**: 14 total plugins available from [official plugin repository](https://github.com/corynth/corynth):
+- **http** - HTTP/HTTPS client for REST API calls ✅ Installed
+- **docker** - Docker container management and operations ✅ Installed
+- **terraform** - Infrastructure as Code operations ✅ Installed  
+- **k8s** - Kubernetes cluster management ✅ Installed
+- **llm** - Large Language Model integration ✅ Installed
+- **calculator** - Mathematical calculations and unit conversions ✅ Installed
+- **reporting** - Generate formatted reports and documents ✅ Installed
+- **slack** - Slack messaging and notifications ✅ Installed
 
 ### Plugin Usage
 
@@ -1043,14 +1066,14 @@ See [docs/PLUGIN_DEVELOPMENT_GUIDE.md](docs/PLUGIN_DEVELOPMENT_GUIDE.md) for com
 
 ## 🤝 Contributing
 
-Contributions are welcome and needed! Since this project is in pre-alpha development, there are many opportunities to help:
+Contributions are welcome! Corynth is now in production-ready status with a fully functional plugin system:
 
 ### Priority Areas for Contribution
-- **Plugin System**: Improve reliability and version compatibility
+- **Plugin Ecosystem**: Create new plugins for additional services and tools
 - **Testing**: Add comprehensive unit and integration tests
-- **Documentation**: Update docs to match actual implementation
-- **Error Handling**: Improve user experience with better error messages
-- **CI/CD**: Set up automated testing and releases
+- **Documentation**: Expand examples and use-case documentation
+- **Performance**: Optimize workflow execution and plugin loading
+- **CI/CD**: Enhance automated testing and release pipelines
 
 ### How to Contribute
 
@@ -1072,11 +1095,11 @@ make build
 ./corynth version
 ```
 
-### Known Issues Needing Help
-- Plugin version compatibility issues
-- Remote plugin auto-installation failures
-- Missing comprehensive test coverage
-- Documentation accuracy improvements
+### Areas for Enhancement
+- Additional plugin development (AWS, GCP, monitoring tools)
+- Comprehensive test coverage expansion
+- Performance optimizations for large workflows
+- Enhanced error reporting and debugging tools
 
 ### Development Guidelines
 
