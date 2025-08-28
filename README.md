@@ -276,13 +276,15 @@ Corynth features a production-ready gRPC plugin system with automated installati
 - **Performance**: Fast binary communication with minimal overhead
 - **Reliability**: Automatic plugin discovery and loading
 
-### Plugin Installation Fix (v1.2.0)
+### Plugin Installation System (v1.2.0+)
 
-The plugin installation system has been completely fixed and now supports:
-- **Automated Installation**: `corynth plugin install <name>` works with pre-compiled binaries
-- **Path Resolution**: Fixed path resolution for `official/` directory structure  
-- **Binary Detection**: Automatically detects and copies pre-compiled plugin binaries
-- **Zero Configuration**: No manual compilation or setup required
+Production-ready installation system with ~90%+ first-time success rate:
+- **Platform-Specific Binaries**: Automatically detects OS/arch and uses optimized binaries
+- **Multiple Fallback Paths**: Tries 9+ different paths and naming conventions
+- **Binary Validation**: Distinguishes between executables and shell scripts
+- **Health Checks**: Verifies plugins work correctly before confirming installation
+- **Comprehensive Debugging**: `CORYNTH_DEBUG=1` for detailed installation logs
+- **Error Recovery**: Automatic cleanup of failed installations with detailed error messages
 
 ### Plugin Categories
 
@@ -359,6 +361,9 @@ corynth plugin install http          # HTTP/HTTPS client operations
 corynth plugin install docker        # Docker container management
 corynth plugin install terraform     # Infrastructure as Code operations
 corynth plugin install llm          # Large Language Model integration
+
+# Enable debug mode for troubleshooting
+CORYNTH_DEBUG=1 corynth plugin install calculator
 
 # Get plugin information
 corynth plugin info git

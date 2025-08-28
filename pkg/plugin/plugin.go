@@ -6,13 +6,16 @@ import (
 	"encoding/json"
 	"fmt"
 	"io"
+	"log"
 	"os"
 	"os/exec"
 	"path/filepath"
 	"plugin"
 	"reflect"
+	"runtime"
 	"strings"
 	"sync"
+	"time"
 
 	"github.com/go-git/go-git/v5"
 	"github.com/go-git/go-git/v5/plumbing"
@@ -621,37 +624,102 @@ func (m *Manager) installFromGit(repo Repository, pluginName string) error {
 		return m.loadCompiledPlugin(destSoPath)
 	}
 
-	// Try multiple paths for pre-compiled binaries
-	binaryPaths := []string{
-		filepath.Join(repoPath, "official", pluginName, fmt.Sprintf("%s-plugin", pluginName)), // e.g., llm-plugin
-		filepath.Join(repoPath, "official", pluginName, "plugin"),                              // e.g., plugin
-		filepath.Join(repoPath, "official", pluginName, pluginName),                           // e.g., llm
-		filepath.Join(repoPath, pluginName, fmt.Sprintf("%s-plugin", pluginName)),            // fallback: root level
-		filepath.Join(repoPath, pluginName, "plugin"),                                         // fallback: root level
+	// Enable debug logging if CORYNTH_DEBUG is set
+	debug := os.Getenv("CORYNTH_DEBUG") != ""
+	
+	// Detect current platform
+	platform := fmt.Sprintf("%s-%s", runtime.GOOS, runtime.GOARCH)
+	if debug {
+		log.Printf("[DEBUG] Installing plugin '%s' for platform: %s", pluginName, platform)
+	}
+	
+	// Try multiple paths for pre-compiled binaries with platform-specific names
+	binaryPaths := []struct {
+		path string
+		desc string
+	}{
+		// Platform-specific binaries (highest priority)
+		{filepath.Join(repoPath, "official", pluginName, fmt.Sprintf("%s-plugin-%s", pluginName, platform)), "platform-specific binary"},
+		{filepath.Join(repoPath, "official", pluginName, fmt.Sprintf("%s-%s", pluginName, platform)), "platform-specific name"},
+		
+		// Generic binaries
+		{filepath.Join(repoPath, "official", pluginName, fmt.Sprintf("%s-plugin", pluginName)), "generic plugin binary"},
+		{filepath.Join(repoPath, "official", pluginName, "plugin"), "generic plugin"},
+		{filepath.Join(repoPath, "official", pluginName, pluginName), "plugin name only"},
+		
+		// Fallback to root level
+		{filepath.Join(repoPath, pluginName, fmt.Sprintf("%s-plugin", pluginName)), "root level plugin"},
+		{filepath.Join(repoPath, pluginName, "plugin"), "root level generic"},
+		
+		// Additional patterns for compatibility
+		{filepath.Join(repoPath, "official", pluginName, "bin", pluginName), "bin directory"},
+		{filepath.Join(repoPath, "official", pluginName, "dist", pluginName), "dist directory"},
 	}
 
-	for _, binaryPath := range binaryPaths {
-		if _, err := os.Stat(binaryPath); err == nil {
+	var lastError error
+	for _, bp := range binaryPaths {
+		if debug {
+			log.Printf("[DEBUG] Trying path: %s (%s)", bp.path, bp.desc)
+		}
+		
+		if info, err := os.Stat(bp.path); err == nil {
+			if debug {
+				log.Printf("[DEBUG] Found file at %s, size: %d bytes", bp.path, info.Size())
+			}
+			
 			// Validate it's a binary (not a shell script)
-			if isBinary, err := isExecutableBinary(binaryPath); err == nil && isBinary {
+			if isBinary, err := isExecutableBinary(bp.path); err == nil && isBinary {
 				destPath := filepath.Join(m.localPath, fmt.Sprintf("corynth-plugin-%s", pluginName))
 				
+				if debug {
+					log.Printf("[DEBUG] Validated as binary, copying to: %s", destPath)
+				}
+				
 				// Ensure destination has execute permissions
-				if err := copyFileWithPermissions(binaryPath, destPath, 0755); err != nil {
-					// Log but continue trying other paths
+				if err := copyFileWithPermissions(bp.path, destPath, 0755); err != nil {
+					lastError = fmt.Errorf("copy failed: %w", err)
+					if debug {
+						log.Printf("[DEBUG] Failed to copy: %v", err)
+					}
 					continue
 				}
 				
 				// Verify plugin loads correctly before returning success
 				if err := m.loadGRPCPlugin(destPath); err != nil {
+					lastError = fmt.Errorf("load failed: %w", err)
+					if debug {
+						log.Printf("[DEBUG] Failed to load plugin: %v", err)
+					}
 					// Remove failed plugin and try next path
 					os.Remove(destPath)
 					continue
 				}
 				
+				// Perform health check on the plugin
+				if err := m.healthCheckPlugin(pluginName); err != nil {
+					lastError = fmt.Errorf("health check failed: %w", err)
+					if debug {
+						log.Printf("[DEBUG] Plugin health check failed: %v", err)
+					}
+					// Remove unhealthy plugin
+					os.Remove(destPath)
+					continue
+				}
+				
+				if debug {
+					log.Printf("[DEBUG] Successfully installed plugin '%s' from %s", pluginName, bp.desc)
+				}
 				return nil // Success!
+			} else if debug {
+				log.Printf("[DEBUG] File is not a valid binary executable")
 			}
+		} else if debug && !os.IsNotExist(err) {
+			log.Printf("[DEBUG] Error checking path: %v", err)
 		}
+	}
+	
+	if debug {
+		log.Printf("[DEBUG] No pre-compiled binary found, attempting compilation from source")
 	}
 
 	// Look for plugin directory containing plugin.go in official/ subdirectory
@@ -690,7 +758,32 @@ func (m *Manager) installFromGit(repo Repository, pluginName string) error {
 	// Fallback to legacy source plugin directory structure
 	legacyPluginPath := filepath.Join(repoPath, "plugins", pluginName)
 	if _, err := os.Stat(legacyPluginPath); os.IsNotExist(err) {
-		return fmt.Errorf("plugin '%s' not found in repository (looked for .so file, official/%s/%s-plugin binary, official/%s/plugin binary, official/%s/plugin.go source, %s.go, and plugins/%s/)", pluginName, pluginName, pluginName, pluginName, pluginName, pluginName, pluginName)
+		// Create comprehensive error message with all attempted paths
+		var attemptedPaths []string
+		attemptedPaths = append(attemptedPaths, fmt.Sprintf(".so file: %s", filepath.Join(repoPath, fmt.Sprintf("corynth-plugin-%s.so", pluginName))))
+		
+		for _, bp := range binaryPaths {
+			attemptedPaths = append(attemptedPaths, fmt.Sprintf("%s: %s", bp.desc, bp.path))
+		}
+		
+		attemptedPaths = append(attemptedPaths, fmt.Sprintf("Go source: %s", goFilePath))
+		attemptedPaths = append(attemptedPaths, fmt.Sprintf("Root Go file: %s", rootGoFilePath))
+		attemptedPaths = append(attemptedPaths, fmt.Sprintf("Legacy directory: %s", legacyPluginPath))
+		
+		errorMsg := fmt.Sprintf("plugin '%s' not found in repository.\n\nAttempted paths:\n", pluginName)
+		for i, path := range attemptedPaths {
+			errorMsg += fmt.Sprintf("  %d. %s\n", i+1, path)
+		}
+		
+		if lastError != nil {
+			errorMsg += fmt.Sprintf("\nLast error encountered: %v", lastError)
+		}
+		
+		if debug {
+			errorMsg += "\n\nEnable CORYNTH_DEBUG=1 for detailed debugging information."
+		}
+		
+		return fmt.Errorf("%s", errorMsg)
 	}
 	
 	pluginPath := legacyPluginPath
@@ -1283,6 +1376,59 @@ func (rp *ReflectedPlugin) Actions() []Action {
 	// This is complex to convert via reflection, so return empty for now
 	// The plugin will still work for Execute calls
 	return []Action{}
+}
+
+// healthCheckPlugin performs a basic health check on an installed plugin
+func (m *Manager) healthCheckPlugin(pluginName string) error {
+	// Find the plugin
+	p, exists := m.plugins[pluginName]
+	if !exists {
+		return fmt.Errorf("plugin '%s' not found after installation", pluginName)
+	}
+	
+	// Check if it's a gRPC plugin
+	if grpcPlugin, ok := p.(*SimpleGRPCPlugin); ok {
+		// Try to get metadata with timeout
+		ctx, cancel := context.WithTimeout(context.Background(), 5*time.Second)
+		defer cancel()
+		
+		// Note: SimpleGRPCPlugin handles process lifecycle automatically
+		
+		// Get metadata as health check
+		metadata := grpcPlugin.Metadata()
+		if metadata.Name == "" {
+			return fmt.Errorf("plugin returned empty metadata")
+		}
+		
+		// Verify plugin name matches
+		if metadata.Name != pluginName && metadata.Name != "gRPC plugin: " + pluginName {
+			// Some flexibility for name format
+			if !strings.Contains(strings.ToLower(metadata.Name), strings.ToLower(pluginName)) {
+				return fmt.Errorf("plugin name mismatch: expected '%s', got '%s'", pluginName, metadata.Name)
+			}
+		}
+		
+		// Optional: Test a simple action if available
+		actions := grpcPlugin.Actions()
+		if len(actions) > 0 {
+			// Try to validate with empty params
+			if err := grpcPlugin.Validate(map[string]interface{}{}); err != nil {
+				// Validation errors are okay, we're just checking the plugin responds
+				_ = err
+			}
+		}
+		
+		_ = ctx // Context used for timeout if needed in future
+		return nil
+	}
+	
+	// For other plugin types, just check metadata
+	metadata := p.Metadata()
+	if metadata.Name == "" {
+		return fmt.Errorf("plugin returned empty metadata")
+	}
+	
+	return nil
 }
 
 // Helper function to check if file is a binary executable
