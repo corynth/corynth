@@ -1,6 +1,7 @@
 package plugin
 
 import (
+	"bytes"
 	"context"
 	"encoding/json"
 	"fmt"
@@ -620,23 +621,38 @@ func (m *Manager) installFromGit(repo Repository, pluginName string) error {
 		return m.loadCompiledPlugin(destSoPath)
 	}
 
-	// Look for pre-compiled binary in official/ subdirectory (specific plugin binary)
-	preCompiledPath := filepath.Join(repoPath, "official", pluginName, fmt.Sprintf("%s-plugin", pluginName))
-	if _, err := os.Stat(preCompiledPath); err == nil {
-		// Check if it's actually a binary (not a shell script)
-		if info, err := os.Stat(preCompiledPath); err == nil && info.Size() > 1000 {
-			// Copy pre-compiled binary to local path
-			destPath := filepath.Join(m.localPath, fmt.Sprintf("corynth-plugin-%s", pluginName))
-			if err := copyFile(preCompiledPath, destPath); err != nil {
-				return fmt.Errorf("failed to install pre-compiled plugin: %w", err)
-			}
-			
-			// Load the gRPC plugin
-			return m.loadGRPCPlugin(destPath)
-		}
+	// Try multiple paths for pre-compiled binaries
+	binaryPaths := []string{
+		filepath.Join(repoPath, "official", pluginName, fmt.Sprintf("%s-plugin", pluginName)), // e.g., llm-plugin
+		filepath.Join(repoPath, "official", pluginName, "plugin"),                              // e.g., plugin
+		filepath.Join(repoPath, "official", pluginName, pluginName),                           // e.g., llm
+		filepath.Join(repoPath, pluginName, fmt.Sprintf("%s-plugin", pluginName)),            // fallback: root level
+		filepath.Join(repoPath, pluginName, "plugin"),                                         // fallback: root level
 	}
 
-	// Skip generic "plugin" files as they are usually shell scripts that require runtime compilation
+	for _, binaryPath := range binaryPaths {
+		if _, err := os.Stat(binaryPath); err == nil {
+			// Validate it's a binary (not a shell script)
+			if isBinary, err := isExecutableBinary(binaryPath); err == nil && isBinary {
+				destPath := filepath.Join(m.localPath, fmt.Sprintf("corynth-plugin-%s", pluginName))
+				
+				// Ensure destination has execute permissions
+				if err := copyFileWithPermissions(binaryPath, destPath, 0755); err != nil {
+					// Log but continue trying other paths
+					continue
+				}
+				
+				// Verify plugin loads correctly before returning success
+				if err := m.loadGRPCPlugin(destPath); err != nil {
+					// Remove failed plugin and try next path
+					os.Remove(destPath)
+					continue
+				}
+				
+				return nil // Success!
+			}
+		}
+	}
 
 	// Look for plugin directory containing plugin.go in official/ subdirectory
 	pluginDirPath := filepath.Join(repoPath, "official", pluginName)
@@ -1267,6 +1283,82 @@ func (rp *ReflectedPlugin) Actions() []Action {
 	// This is complex to convert via reflection, so return empty for now
 	// The plugin will still work for Execute calls
 	return []Action{}
+}
+
+// Helper function to check if file is a binary executable
+func isExecutableBinary(path string) (bool, error) {
+	file, err := os.Open(path)
+	if err != nil {
+		return false, err
+	}
+	defer file.Close()
+
+	// Read first few bytes to check for binary signatures
+	header := make([]byte, 512)
+	n, err := file.Read(header)
+	if err != nil && err != io.EOF {
+		return false, err
+	}
+	header = header[:n]
+
+	// Check for shell script indicators
+	if bytes.HasPrefix(header, []byte("#!/")) {
+		return false, nil // Shell script, not binary
+	}
+
+	// Check for ELF (Linux), Mach-O (macOS), or PE (Windows) binary signatures
+	if len(header) >= 4 {
+		// ELF magic number
+		if bytes.Equal(header[:4], []byte{0x7F, 'E', 'L', 'F'}) {
+			return true, nil
+		}
+		// Mach-O magic numbers (32-bit and 64-bit, little and big endian)
+		machO := [][]byte{
+			{0xFE, 0xED, 0xFA, 0xCE}, // 32-bit little endian
+			{0xCE, 0xFA, 0xED, 0xFE}, // 32-bit big endian
+			{0xFE, 0xED, 0xFA, 0xCF}, // 64-bit little endian
+			{0xCF, 0xFA, 0xED, 0xFE}, // 64-bit big endian
+		}
+		for _, magic := range machO {
+			if bytes.Equal(header[:4], magic) {
+				return true, nil
+			}
+		}
+		// PE (Windows) - check for MZ header
+		if len(header) >= 2 && bytes.Equal(header[:2], []byte{'M', 'Z'}) {
+			return true, nil
+		}
+	}
+
+	// Additional check: binary files typically have null bytes
+	if bytes.Contains(header, []byte{0x00}) {
+		return true, nil
+	}
+
+	return false, nil
+}
+
+// Helper function to copy file with specific permissions
+func copyFileWithPermissions(src, dst string, perm os.FileMode) error {
+	sourceFile, err := os.Open(src)
+	if err != nil {
+		return err
+	}
+	defer sourceFile.Close()
+
+	destFile, err := os.OpenFile(dst, os.O_CREATE|os.O_WRONLY|os.O_TRUNC, perm)
+	if err != nil {
+		return err
+	}
+	defer destFile.Close()
+
+	_, err = io.Copy(destFile, sourceFile)
+	if err != nil {
+		return err
+	}
+
+	// Ensure permissions are set correctly
+	return os.Chmod(dst, perm)
 }
 
 // loadGRPCPlugin loads a gRPC plugin executable (simplified for now)
