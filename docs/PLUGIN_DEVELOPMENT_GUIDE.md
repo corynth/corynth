@@ -1,10 +1,10 @@
 # Plugin Development Guide
 
-Comprehensive guide for developing, testing, and distributing Corynth plugins with best practices, troubleshooting, and real-world examples.
+Comprehensive guide for developing, testing, and distributing Corynth plugins using the JSON protocol architecture.
 
 ## Overview
 
-Corynth uses a git-based plugin architecture where plugins are Go modules compiled as shared libraries. This guide covers everything needed to create production-ready plugins.
+Corynth uses a JSON protocol plugin architecture where plugins are executable scripts that communicate via JSON over stdin/stdout. This approach provides maximum language flexibility, version independence, and process isolation for plugin development.
 
 ## Table of Contents
 
@@ -23,404 +23,601 @@ Corynth uses a git-based plugin architecture where plugins are Go modules compil
 ## Quick Start
 
 ### Prerequisites
-- Go 1.21 or later
-- Git
-- Basic understanding of Go interfaces
+- Any programming language (Python, Node.js, Go, Rust, etc.)
+- Basic understanding of JSON data structures
+- Command-line development experience
 
 ### Create Your First Plugin
 
-1. **Clone the plugin template**:
+1. **Choose your language and create plugin file**:
 ```bash
-git clone https://github.com/corynth/corynthplugins.git
-cd corynthplugins
-mkdir my-plugin
-cd my-plugin
+# Python example
+touch my-plugin.py
+chmod +x my-plugin.py
 ```
 
-2. **Create the basic structure**:
-```
-my-plugin/
-├── plugin.go          # Main plugin implementation
-├── go.mod            # Go module definition
-├── README.md         # Plugin documentation
-└── samples/          # Sample workflows
-    └── example.hcl
+2. **Implement the basic structure**:
+```python
+#!/usr/bin/env python3
+import json
+import sys
+
+class MyPlugin:
+    def get_metadata(self):
+        return {
+            "name": "my-plugin",
+            "version": "1.0.0", 
+            "description": "Description of what this plugin does",
+            "author": "Your Name",
+            "tags": ["category", "functionality"]
+        }
+    
+    def get_actions(self):
+        return {
+            "my-action": {
+                "description": "Description of the action",
+                "inputs": {
+                    "param1": {"type": "string", "required": True}
+                },
+                "outputs": {
+                    "result": {"type": "string"}
+                }
+            }
+        }
+    
+    def execute(self, action, params):
+        if action == "my-action":
+            return {"result": f"Hello {params.get('param1', 'World')}"}
+        raise ValueError(f"Unknown action: {action}")
+
+def main():
+    if len(sys.argv) < 2:
+        print(json.dumps({"error": "action required"}))
+        sys.exit(1)
+    
+    action = sys.argv[1]
+    plugin = MyPlugin()
+    
+    if action == "metadata":
+        result = plugin.get_metadata()
+    elif action == "actions":
+        result = plugin.get_actions()
+    else:
+        params_data = sys.stdin.read().strip()
+        params = json.loads(params_data) if params_data else {}
+        result = plugin.execute(action, params)
+    
+    print(json.dumps(result))
+
+if __name__ == "__main__":
+    main()
 ```
 
-3. **Initialize Go module**:
+3. **Test your plugin**:
 ```bash
-go mod init github.com/corynth/corynthplugins/my-plugin
-go mod tidy
+# Test metadata
+./my-plugin.py metadata
+
+# Test actions  
+./my-plugin.py actions
+
+# Test execution
+echo '{"param1": "World"}' | ./my-plugin.py my-action
 ```
 
 ## Plugin Architecture
 
 ### Core Concepts
 
-Corynth plugins are:
-- **Go shared libraries** compiled with `-buildmode=plugin`
-- **Git-distributed** from repositories
-- **Lazy-loaded** on first use
-- **Interface-compliant** with the Corynth Plugin API
+Corynth JSON protocol plugins are:
+- **Language agnostic** - Implement in any programming language
+- **Process isolated** - Each plugin runs in its own process
+- **JSON communication** - Simple JSON over stdin/stdout
+- **Command-line driven** - Actions specified as command-line arguments
+- **Stateless** - Each invocation is independent
+
+### Plugin Communication Protocol
+
+The plugin communication follows this simple pattern:
+
+```bash
+# Get plugin metadata
+./plugin.py metadata
+# Output: {"name": "my-plugin", "version": "1.0.0", ...}
+
+# Get available actions
+./plugin.py actions  
+# Output: {"action1": {...}, "action2": {...}}
+
+# Execute action with parameters
+echo '{"param1": "value"}' | ./plugin.py action1
+# Output: {"result": "action result"}
+```
 
 ### Plugin Lifecycle
 
-1. **Discovery**: Plugin requested in workflow
-2. **Download**: Git clone from repository
-3. **Compilation**: On-demand build as shared library
-4. **Loading**: Dynamic loading into Corynth runtime
-5. **Execution**: Action invocation with parameters
-6. **Cleanup**: Resource management and cleanup
+1. **Discovery**: Plugin discovered in plugin directory
+2. **Metadata**: Corynth calls `./plugin metadata` to get plugin info
+3. **Action Discovery**: Corynth calls `./plugin actions` to get available actions
+4. **Execution**: Corynth calls `./plugin <action>` with JSON params via stdin
+5. **Cleanup**: Process terminates after execution
 
 ## Development Environment
-
-### Required Dependencies
-
-Add to your `go.mod`:
-```go
-module github.com/corynth/corynthplugins/my-plugin
-
-go 1.21
-
-require (
-    github.com/corynth/corynth v1.0.0
-)
-```
 
 ### Directory Structure
 ```
 my-plugin/
-├── plugin.go                    # Plugin implementation
-├── go.mod                      # Module definition
-├── README.md                   # Plugin documentation
-├── samples/                    # Example workflows
+├── plugin.py                  # Main plugin executable
+├── README.md                  # Plugin documentation
+├── requirements.txt           # Dependencies (if Python)
+├── package.json              # Dependencies (if Node.js)
+├── samples/                  # Example workflows
 │   ├── basic-usage.hcl
 │   └── advanced-features.hcl
-└── tests/                      # Test files (optional)
-    └── plugin_test.go
+└── tests/                    # Test files
+    └── test_plugin.py
+```
+
+### Installation Location
+Place your plugin in the Corynth plugins directory:
+```bash
+# Copy to plugin directory
+cp my-plugin.py ~/.corynth/plugins/my-plugin
+
+# Or create symbolic link for development
+ln -s /path/to/development/my-plugin.py ~/.corynth/plugins/my-plugin
 ```
 
 ## Plugin Interface
 
-### Required Interface Implementation
+### Required Commands
 
-Every plugin must implement the `Plugin` interface:
+Every plugin must support three commands:
 
-```go
-package main
+#### 1. Metadata Command
+```bash
+./plugin metadata
+```
+Returns plugin information:
+```json
+{
+  "name": "my-plugin",
+  "version": "1.0.0",
+  "description": "Brief description of plugin functionality",
+  "author": "Your Name",
+  "tags": ["category", "functionality", "integration"],
+  "license": "Apache-2.0"
+}
+```
 
-import (
-    "context"
-    "github.com/corynth/corynth/pkg/plugin"
-)
+#### 2. Actions Command  
+```bash
+./plugin actions
+```
+Returns available actions:
+```json
+{
+  "action1": {
+    "description": "Description of what this action does",
+    "inputs": {
+      "required_param": {
+        "type": "string",
+        "required": true,
+        "description": "A required string parameter"
+      },
+      "optional_param": {
+        "type": "number", 
+        "required": false,
+        "default": 42,
+        "description": "An optional parameter with default"
+      }
+    },
+    "outputs": {
+      "result": {
+        "type": "string",
+        "description": "The operation result"
+      },
+      "status": {
+        "type": "number", 
+        "description": "Status code"
+      }
+    }
+  }
+}
+```
 
-type MyPlugin struct{}
+#### 3. Action Execution
+```bash
+echo '{"param1": "value"}' | ./plugin action1
+```
+Executes the specified action with JSON parameters from stdin:
+```json
+{
+  "result": "action completed successfully",
+  "status": 200
+}
+```
 
-// Metadata returns plugin information
-func (p *MyPlugin) Metadata() plugin.Metadata {
-    return plugin.Metadata{
-        Name:        "my-plugin",
-        Version:     "1.0.0", 
-        Description: "Description of what this plugin does",
-        Author:      "Your Name",
-        Tags:        []string{"tag1", "tag2", "category"},
-        License:     "Apache-2.0",
+### Parameter Types
+
+Supported parameter types:
+- **string**: Text values
+- **number**: Numeric values (integers and floats)
+- **boolean**: True/false values
+- **array**: Lists of values
+- **object**: Nested JSON objects
+
+## Implementation Patterns
+
+### 1. Python Implementation Pattern
+
+```python
+#!/usr/bin/env python3
+import json
+import sys
+import requests
+from typing import Dict, Any
+
+class HttpPlugin:
+    def get_metadata(self):
+        return {
+            "name": "http-client",
+            "version": "1.0.0",
+            "description": "HTTP client for making web requests",
+            "author": "Corynth Team",
+            "tags": ["http", "web", "api"]
+        }
+    
+    def get_actions(self):
+        return {
+            "get": {
+                "description": "Make HTTP GET request",
+                "inputs": {
+                    "url": {"type": "string", "required": True},
+                    "headers": {"type": "object", "required": False},
+                    "timeout": {"type": "number", "required": False, "default": 30}
+                },
+                "outputs": {
+                    "status_code": {"type": "number"},
+                    "body": {"type": "string"},
+                    "headers": {"type": "object"}
+                }
+            },
+            "post": {
+                "description": "Make HTTP POST request", 
+                "inputs": {
+                    "url": {"type": "string", "required": True},
+                    "data": {"type": "object", "required": False},
+                    "headers": {"type": "object", "required": False},
+                    "timeout": {"type": "number", "required": False, "default": 30}
+                },
+                "outputs": {
+                    "status_code": {"type": "number"},
+                    "body": {"type": "string"}, 
+                    "headers": {"type": "object"}
+                }
+            }
+        }
+    
+    def execute(self, action: str, params: Dict[str, Any]) -> Dict[str, Any]:
+        try:
+            if action == "get":
+                return self._make_request("GET", params)
+            elif action == "post":
+                return self._make_request("POST", params)
+            else:
+                raise ValueError(f"Unknown action: {action}")
+        except Exception as e:
+            return {"error": str(e)}
+    
+    def _make_request(self, method: str, params: Dict[str, Any]) -> Dict[str, Any]:
+        url = params.get("url")
+        headers = params.get("headers", {})
+        timeout = params.get("timeout", 30)
+        
+        if method == "POST":
+            data = params.get("data")
+            response = requests.request(method, url, json=data, headers=headers, timeout=timeout)
+        else:
+            response = requests.request(method, url, headers=headers, timeout=timeout)
+        
+        return {
+            "status_code": response.status_code,
+            "body": response.text,
+            "headers": dict(response.headers)
+        }
+
+def main():
+    if len(sys.argv) < 2:
+        print(json.dumps({"error": "action required"}))
+        sys.exit(1)
+    
+    action = sys.argv[1]
+    plugin = HttpPlugin()
+    
+    if action == "metadata":
+        result = plugin.get_metadata()
+    elif action == "actions":
+        result = plugin.get_actions()
+    else:
+        params_data = sys.stdin.read().strip()
+        params = json.loads(params_data) if params_data else {}
+        result = plugin.execute(action, params)
+    
+    print(json.dumps(result))
+
+if __name__ == "__main__":
+    main()
+```
+
+### 2. Node.js Implementation Pattern
+
+```javascript
+#!/usr/bin/env node
+
+const fs = require('fs');
+const { execSync } = require('child_process');
+
+class ShellPlugin {
+    getMetadata() {
+        return {
+            name: "shell-executor",
+            version: "1.0.0", 
+            description: "Execute shell commands safely",
+            author: "Corynth Team",
+            tags: ["shell", "command", "system"]
+        };
+    }
+    
+    getActions() {
+        return {
+            exec: {
+                description: "Execute shell command",
+                inputs: {
+                    command: { type: "string", required: true },
+                    working_dir: { type: "string", required: false },
+                    timeout: { type: "number", required: false, default: 300 }
+                },
+                outputs: {
+                    output: { type: "string" },
+                    exit_code: { type: "number" },
+                    success: { type: "boolean" }
+                }
+            }
+        };
+    }
+    
+    execute(action, params) {
+        try {
+            if (action === "exec") {
+                return this.executeCommand(params);
+            } else {
+                throw new Error(`Unknown action: ${action}`);
+            }
+        } catch (error) {
+            return { error: error.message };
+        }
+    }
+    
+    executeCommand(params) {
+        const command = params.command;
+        const workingDir = params.working_dir || process.cwd();
+        const timeout = (params.timeout || 300) * 1000; // Convert to milliseconds
+        
+        try {
+            const output = execSync(command, {
+                cwd: workingDir,
+                timeout: timeout,
+                encoding: 'utf8'
+            });
+            
+            return {
+                output: output.toString(),
+                exit_code: 0,
+                success: true
+            };
+        } catch (error) {
+            return {
+                output: error.stdout ? error.stdout.toString() : "",
+                exit_code: error.status || 1,
+                success: false
+            };
+        }
     }
 }
 
-// Actions returns available plugin actions
-func (p *MyPlugin) Actions() []plugin.Action {
-    return []plugin.Action{
-        {
-            Name:        "my-action",
-            Description: "Description of the action",
-            Inputs:      getInputSpecs(),
-            Outputs:     getOutputSpecs(),
+function main() {
+    const args = process.argv.slice(2);
+    if (args.length < 1) {
+        console.log(JSON.stringify({ error: "action required" }));
+        process.exit(1);
+    }
+    
+    const action = args[0];
+    const plugin = new ShellPlugin();
+    
+    let result;
+    if (action === "metadata") {
+        result = plugin.getMetadata();
+    } else if (action === "actions") {
+        result = plugin.getActions();
+    } else {
+        // Read parameters from stdin
+        const input = fs.readFileSync(0, 'utf8').trim();
+        const params = input ? JSON.parse(input) : {};
+        result = plugin.execute(action, params);
+    }
+    
+    console.log(JSON.stringify(result));
+}
+
+if (require.main === module) {
+    main();
+}
+```
+
+### 3. Go Implementation Pattern
+
+```go
+#!/usr/bin/env go run
+
+package main
+
+import (
+    "encoding/json"
+    "fmt"
+    "io"
+    "os"
+    "os/exec"
+    "strconv"
+    "time"
+)
+
+type FilePlugin struct{}
+
+type Metadata struct {
+    Name        string   `json:"name"`
+    Version     string   `json:"version"`
+    Description string   `json:"description"`
+    Author      string   `json:"author"`
+    Tags        []string `json:"tags"`
+}
+
+type ActionSpec struct {
+    Description string                 `json:"description"`
+    Inputs      map[string]interface{} `json:"inputs"`
+    Outputs     map[string]interface{} `json:"outputs"`
+}
+
+func (p *FilePlugin) GetMetadata() Metadata {
+    return Metadata{
+        Name:        "file-operations",
+        Version:     "1.0.0",
+        Description: "File system operations",
+        Author:      "Corynth Team", 
+        Tags:        []string{"file", "filesystem", "io"},
+    }
+}
+
+func (p *FilePlugin) GetActions() map[string]ActionSpec {
+    return map[string]ActionSpec{
+        "read": {
+            Description: "Read file contents",
+            Inputs: map[string]interface{}{
+                "path": map[string]interface{}{
+                    "type":     "string",
+                    "required": true,
+                },
+            },
+            Outputs: map[string]interface{}{
+                "content": map[string]interface{}{"type": "string"},
+                "size":    map[string]interface{}{"type": "number"},
+            },
+        },
+        "write": {
+            Description: "Write content to file",
+            Inputs: map[string]interface{}{
+                "path": map[string]interface{}{
+                    "type":     "string", 
+                    "required": true,
+                },
+                "content": map[string]interface{}{
+                    "type":     "string",
+                    "required": true,
+                },
+            },
+            Outputs: map[string]interface{}{
+                "success": map[string]interface{}{"type": "boolean"},
+                "size":    map[string]interface{}{"type": "number"},
+            },
         },
     }
 }
 
-// Execute performs the plugin action
-func (p *MyPlugin) Execute(ctx context.Context, action string, params map[string]interface{}) (map[string]interface{}, error) {
+func (p *FilePlugin) Execute(action string, params map[string]interface{}) (map[string]interface{}, error) {
     switch action {
-    case "my-action":
-        return p.executeMyAction(ctx, params)
+    case "read":
+        return p.readFile(params)
+    case "write":
+        return p.writeFile(params)
     default:
         return nil, fmt.Errorf("unknown action: %s", action)
     }
 }
 
-// Validate checks parameter validity
-func (p *MyPlugin) Validate(params map[string]interface{}) error {
-    // Implement parameter validation
-    return nil
-}
-
-// Required: Export the plugin
-var ExportedPlugin MyPlugin
-```
-
-### Input/Output Specifications
-
-Define clear parameter specifications:
-
-```go
-func getInputSpecs() map[string]plugin.InputSpec {
-    return map[string]plugin.InputSpec{
-        "required_param": {
-            Type:        "string",
-            Description: "A required string parameter",
-            Required:    true,
-        },
-        "optional_param": {
-            Type:        "number",
-            Description: "An optional number with default",
-            Required:    false,
-            Default:     42,
-        },
-        "list_param": {
-            Type:        "array",
-            Description: "A list of items",
-            Required:    false,
-        },
-        "object_param": {
-            Type:        "object", 
-            Description: "A nested object parameter",
-            Required:    false,
-        },
-    }
-}
-
-func getOutputSpecs() map[string]plugin.OutputSpec {
-    return map[string]plugin.OutputSpec{
-        "result": {
-            Type:        "string",
-            Description: "The operation result",
-        },
-        "status_code": {
-            Type:        "number",
-            Description: "Status code of the operation",
-        },
-        "metadata": {
-            Type:        "object",
-            Description: "Additional metadata",
-        },
-    }
-}
-```
-
-## Implementation Patterns
-
-### 1. HTTP Client Plugin Pattern
-
-```go
-func (p *HttpPlugin) executeRequest(ctx context.Context, params map[string]interface{}) (map[string]interface{}, error) {
-    // Extract parameters
-    url, ok := params["url"].(string)
-    if !ok {
-        return nil, fmt.Errorf("url parameter is required")
-    }
-    
-    method := getStringParam(params, "method", "GET")
-    timeout := getIntParam(params, "timeout", 30)
-    
-    // Create HTTP client with timeout
-    client := &http.Client{
-        Timeout: time.Duration(timeout) * time.Second,
-    }
-    
-    // Create request
-    req, err := http.NewRequestWithContext(ctx, method, url, nil)
-    if err != nil {
-        return nil, fmt.Errorf("failed to create request: %w", err)
-    }
-    
-    // Add headers if provided
-    if headers, ok := params["headers"].(map[string]interface{}); ok {
-        for key, value := range headers {
-            req.Header.Set(key, fmt.Sprintf("%v", value))
-        }
-    }
-    
-    // Execute request
-    resp, err := client.Do(req)
-    if err != nil {
-        return nil, fmt.Errorf("request failed: %w", err)
-    }
-    defer resp.Body.Close()
-    
-    // Read response
-    body, err := io.ReadAll(resp.Body)
-    if err != nil {
-        return nil, fmt.Errorf("failed to read response: %w", err)
-    }
-    
-    // Return structured response
-    return map[string]interface{}{
-        "status_code": resp.StatusCode,
-        "body":        string(body),
-        "headers":     resp.Header,
-    }, nil
-}
-```
-
-### 2. Command Execution Plugin Pattern
-
-```go
-func (p *ShellPlugin) executeCommand(ctx context.Context, params map[string]interface{}) (map[string]interface{}, error) {
-    command, ok := params["command"].(string)
-    if !ok {
-        return nil, fmt.Errorf("command parameter is required")
-    }
-    
-    // Get optional parameters
-    workingDir := getStringParam(params, "working_dir", "")
-    timeout := getIntParam(params, "timeout", 300)
-    shell := getStringParam(params, "shell", "/bin/bash")
-    
-    // Create context with timeout
-    timeoutCtx, cancel := context.WithTimeout(ctx, time.Duration(timeout)*time.Second)
-    defer cancel()
-    
-    // Create command
-    var cmd *exec.Cmd
-    if shell != "" {
-        cmd = exec.CommandContext(timeoutCtx, shell, "-c", command)
-    } else {
-        parts := strings.Fields(command)
-        cmd = exec.CommandContext(timeoutCtx, parts[0], parts[1:]...)
-    }
-    
-    // Set working directory
-    if workingDir != "" {
-        cmd.Dir = workingDir
-    }
-    
-    // Set environment variables
-    cmd.Env = os.Environ()
-    if env, ok := params["env"].(map[string]interface{}); ok {
-        for key, value := range env {
-            cmd.Env = append(cmd.Env, fmt.Sprintf("%s=%v", key, value))
-        }
-    }
-    
-    // Execute command
-    output, err := cmd.CombinedOutput()
-    exitCode := 0
-    if err != nil {
-        if exitError, ok := err.(*exec.ExitError); ok {
-            exitCode = exitError.ExitCode()
-        } else {
-            return nil, fmt.Errorf("command execution failed: %w", err)
-        }
-    }
-    
-    return map[string]interface{}{
-        "output":    string(output),
-        "exit_code": exitCode,
-        "success":   exitCode == 0,
-    }, nil
-}
-```
-
-### 3. File Operations Plugin Pattern
-
-```go
-func (p *FilePlugin) executeRead(ctx context.Context, params map[string]interface{}) (map[string]interface{}, error) {
+func (p *FilePlugin) readFile(params map[string]interface{}) (map[string]interface{}, error) {
     path, ok := params["path"].(string)
     if !ok {
-        return nil, fmt.Errorf("path parameter is required")
+        return map[string]interface{}{"error": "path parameter required"}, nil
     }
     
-    // Security check - prevent path traversal
-    if strings.Contains(path, "..") {
-        return nil, fmt.Errorf("path traversal not allowed")
-    }
-    
-    // Read file
     content, err := os.ReadFile(path)
     if err != nil {
-        return nil, fmt.Errorf("failed to read file: %w", err)
-    }
-    
-    // Get file info
-    info, err := os.Stat(path)
-    if err != nil {
-        return nil, fmt.Errorf("failed to get file info: %w", err)
+        return map[string]interface{}{"error": err.Error()}, nil
     }
     
     return map[string]interface{}{
-        "content":  string(content),
-        "size":     info.Size(),
-        "modified": info.ModTime().Unix(),
-        "mode":     info.Mode().String(),
+        "content": string(content),
+        "size":    len(content),
     }, nil
 }
-```
 
-### 4. Database Plugin Pattern
-
-```go
-func (p *DatabasePlugin) executeQuery(ctx context.Context, params map[string]interface{}) (map[string]interface{}, error) {
-    query, ok := params["query"].(string)
+func (p *FilePlugin) writeFile(params map[string]interface{}) (map[string]interface{}, error) {
+    path, ok := params["path"].(string)
     if !ok {
-        return nil, fmt.Errorf("query parameter is required")
+        return map[string]interface{}{"error": "path parameter required"}, nil
     }
     
-    // Get connection parameters
-    connectionString := getStringParam(params, "connection_string", "")
-    if connectionString == "" {
-        return nil, fmt.Errorf("connection_string is required")
+    content, ok := params["content"].(string)
+    if !ok {
+        return map[string]interface{}{"error": "content parameter required"}, nil
     }
     
-    // Open database connection
-    db, err := sql.Open("mysql", connectionString)
+    err := os.WriteFile(path, []byte(content), 0644)
     if err != nil {
-        return nil, fmt.Errorf("failed to connect to database: %w", err)
-    }
-    defer db.Close()
-    
-    // Set connection context
-    db = db.WithContext(ctx)
-    
-    // Execute query
-    rows, err := db.Query(query)
-    if err != nil {
-        return nil, fmt.Errorf("query execution failed: %w", err)
-    }
-    defer rows.Close()
-    
-    // Get column names
-    columns, err := rows.Columns()
-    if err != nil {
-        return nil, fmt.Errorf("failed to get columns: %w", err)
-    }
-    
-    // Read results
-    var results []map[string]interface{}
-    for rows.Next() {
-        values := make([]interface{}, len(columns))
-        valuePtrs := make([]interface{}, len(columns))
-        for i := range columns {
-            valuePtrs[i] = &values[i]
-        }
-        
-        if err := rows.Scan(valuePtrs...); err != nil {
-            return nil, fmt.Errorf("failed to scan row: %w", err)
-        }
-        
-        row := make(map[string]interface{})
-        for i, col := range columns {
-            row[col] = values[i]
-        }
-        results = append(results, row)
+        return map[string]interface{}{"error": err.Error()}, nil
     }
     
     return map[string]interface{}{
-        "rows":    results,
-        "count":   len(results),
-        "columns": columns,
+        "success": true,
+        "size":    len(content),
     }, nil
+}
+
+func main() {
+    if len(os.Args) < 2 {
+        fmt.Println(`{"error": "action required"}`)
+        os.Exit(1)
+    }
+    
+    action := os.Args[1]
+    plugin := &FilePlugin{}
+    
+    var result interface{}
+    var err error
+    
+    if action == "metadata" {
+        result = plugin.GetMetadata()
+    } else if action == "actions" {
+        result = plugin.GetActions()
+    } else {
+        // Read parameters from stdin
+        input, _ := io.ReadAll(os.Stdin)
+        var params map[string]interface{}
+        if len(input) > 0 {
+            json.Unmarshal(input, &params)
+        } else {
+            params = make(map[string]interface{})
+        }
+        result, err = plugin.Execute(action, params)
+    }
+    
+    if err != nil {
+        result = map[string]interface{}{"error": err.Error()}
+    }
+    
+    output, _ := json.Marshal(result)
+    fmt.Println(string(output))
 }
 ```
 
@@ -430,137 +627,126 @@ func (p *DatabasePlugin) executeQuery(ctx context.Context, params map[string]int
 
 Create comprehensive tests for your plugin:
 
-```go
-package main
+```python
+#!/usr/bin/env python3
+import json
+import subprocess
+import unittest
+from io import StringIO
 
-import (
-    "context"
-    "testing"
-    "time"
+class TestMyPlugin(unittest.TestCase):
+    def setUp(self):
+        self.plugin_path = "./my-plugin.py"
     
-    "github.com/corynth/corynth/pkg/plugin"
-)
-
-func TestPluginMetadata(t *testing.T) {
-    p := &MyPlugin{}
-    meta := p.Metadata()
+    def run_plugin(self, action, params=None):
+        """Helper to run plugin command"""
+        cmd = [self.plugin_path, action]
+        
+        if params:
+            input_data = json.dumps(params)
+            process = subprocess.run(
+                cmd, 
+                input=input_data, 
+                text=True, 
+                capture_output=True
+            )
+        else:
+            process = subprocess.run(cmd, capture_output=True, text=True)
+        
+        if process.returncode != 0:
+            raise Exception(f"Plugin failed: {process.stderr}")
+        
+        return json.loads(process.stdout)
     
-    if meta.Name == "" {
-        t.Error("Plugin name cannot be empty")
-    }
+    def test_metadata(self):
+        """Test plugin metadata"""
+        result = self.run_plugin("metadata")
+        
+        self.assertIn("name", result)
+        self.assertIn("version", result)
+        self.assertIn("description", result)
+        self.assertIn("author", result)
+        self.assertIn("tags", result)
+        
+        self.assertIsInstance(result["tags"], list)
+        self.assertGreater(len(result["tags"]), 0)
     
-    if meta.Version == "" {
-        t.Error("Plugin version cannot be empty")
-    }
+    def test_actions(self):
+        """Test plugin actions"""
+        result = self.run_plugin("actions")
+        
+        self.assertIsInstance(result, dict)
+        self.assertGreater(len(result), 0)
+        
+        # Check action structure
+        for action_name, action_spec in result.items():
+            self.assertIn("description", action_spec)
+            self.assertIn("inputs", action_spec)
+            self.assertIn("outputs", action_spec)
     
-    if len(meta.Tags) == 0 {
-        t.Error("Plugin should have at least one tag")
-    }
-}
-
-func TestPluginActions(t *testing.T) {
-    p := &MyPlugin{}
-    actions := p.Actions()
+    def test_valid_execution(self):
+        """Test valid plugin execution"""
+        params = {"param1": "test_value"}
+        result = self.run_plugin("my-action", params)
+        
+        self.assertNotIn("error", result)
+        self.assertIn("result", result)
     
-    if len(actions) == 0 {
-        t.Error("Plugin should have at least one action")
-    }
+    def test_invalid_action(self):
+        """Test invalid action handling"""
+        try:
+            result = self.run_plugin("invalid-action", {})
+            self.assertIn("error", result)
+        except Exception:
+            pass  # Expected to fail
     
-    for _, action := range actions {
-        if action.Name == "" {
-            t.Error("Action name cannot be empty")
-        }
-        if action.Description == "" {
-            t.Error("Action description cannot be empty")
-        }
-    }
-}
-
-func TestPluginExecution(t *testing.T) {
-    p := &MyPlugin{}
-    ctx := context.Background()
-    
-    params := map[string]interface{}{
-        "required_param": "test_value",
-        "optional_param": 42,
-    }
-    
-    result, err := p.Execute(ctx, "my-action", params)
-    if err != nil {
-        t.Fatalf("Plugin execution failed: %v", err)
-    }
-    
-    if result == nil {
-        t.Error("Plugin should return a result")
-    }
-}
-
-func TestPluginValidation(t *testing.T) {
-    p := &MyPlugin{}
-    
-    // Test valid parameters
-    validParams := map[string]interface{}{
-        "required_param": "test",
-    }
-    
-    if err := p.Validate(validParams); err != nil {
-        t.Errorf("Valid parameters should pass validation: %v", err)
-    }
-    
-    // Test invalid parameters
-    invalidParams := map[string]interface{}{
-        "wrong_param": "test",
-    }
-    
-    if err := p.Validate(invalidParams); err == nil {
-        t.Error("Invalid parameters should fail validation")
-    }
-}
-
-func TestPluginTimeout(t *testing.T) {
-    p := &MyPlugin{}
-    
-    // Create context with short timeout
-    ctx, cancel := context.WithTimeout(context.Background(), 100*time.Millisecond)
-    defer cancel()
-    
-    params := map[string]interface{}{
-        "sleep_duration": 1000, // Sleep longer than timeout
-    }
-    
-    _, err := p.Execute(ctx, "sleep-action", params)
-    if err == nil {
-        t.Error("Plugin should respect context timeout")
-    }
-}
+    def test_missing_required_param(self):
+        """Test missing required parameter"""
+        result = self.run_plugin("my-action", {})
+        # Should handle gracefully
+        
+if __name__ == "__main__":
+    unittest.main()
 ```
 
-### Integration Testing
+### Integration Testing with Corynth
 
-Test the plugin with Corynth workflows:
+Create test workflows:
 
-```bash
-# Create test workflow
-cat > test-workflow.hcl << EOF
+```hcl
+# test-workflow.hcl
 workflow "test-my-plugin" {
-  description = "Test my custom plugin"
+  description = "Test workflow for my plugin"
   version     = "1.0.0"
 
-  step "test_action" {
-    plugin = "my-plugin"
+  step "test_basic" {
+    plugin = "my-plugin" 
     action = "my-action"
     
     params = {
-      required_param = "test_value"
-      optional_param = 42
+      param1 = "test_value"
+    }
+  }
+  
+  step "test_with_dependency" {
+    plugin = "my-plugin"
+    action = "my-action"
+    
+    depends_on = ["test_basic"]
+    
+    params = {
+      param1 = "${test_basic.result}"
     }
   }
 }
-EOF
+```
 
-# Test with Corynth
+Test with Corynth:
+```bash
+# Validate workflow syntax
 corynth validate test-workflow.hcl
-corynth plan test-workflow.hcl
+
+# Test plugin execution
 corynth apply test-workflow.hcl --auto-approve
 ```
 
@@ -573,9 +759,22 @@ corynth apply test-workflow.hcl --auto-approve
 
 Brief description of what the plugin does and its primary use cases.
 
-## Installation
+## Installation  
 
-This plugin is automatically downloaded and compiled when first used in a Corynth workflow.
+1. Download the plugin:
+```bash
+curl -o ~/.corynth/plugins/my-plugin https://raw.githubusercontent.com/username/my-plugin/main/plugin.py
+chmod +x ~/.corynth/plugins/my-plugin
+```
+
+2. Install dependencies (if needed):
+```bash
+# Python
+pip install -r requirements.txt
+
+# Node.js
+npm install
+```
 
 ## Actions
 
@@ -590,8 +789,7 @@ Description of the action and what it accomplishes.
 
 **Returns:**
 - `result` (string): Description of the result
-- `status_code` (number): Operation status code
-- `metadata` (object): Additional information
+- `status` (number): Operation status code
 
 **Example:**
 ```hcl
@@ -607,441 +805,286 @@ step "example" {
 }
 ```
 
-## Configuration
+## Development
 
-### Environment Variables
-- `MY_PLUGIN_API_KEY`: API key for authentication
-- `MY_PLUGIN_TIMEOUT`: Default timeout in seconds
+### Testing
+```bash
+# Run unit tests
+python test_plugin.py
 
-### Authentication
-Description of how to configure authentication if needed.
+# Test plugin directly
+./plugin.py metadata
+./plugin.py actions
+echo '{"param1": "test"}' | ./plugin.py my-action
+```
 
-## Error Handling
+### Contributing
 
-Common errors and how to resolve them:
-
-- **Error: "required_param is missing"**: Ensure all required parameters are provided
-- **Error: "connection timeout"**: Check network connectivity and timeout settings
-
-## Examples
-
-See the [samples/](samples/) directory for complete workflow examples.
-
-## Contributing
-
-Instructions for contributing to the plugin development.
+1. Fork the repository
+2. Create a feature branch
+3. Make your changes
+4. Add tests
+5. Submit a pull request
 
 ## License
 
 Apache-2.0 License
 ```
 
-### Sample Workflows
-
-Create comprehensive examples in the `samples/` directory:
-
-```hcl
-# samples/basic-usage.hcl
-workflow "basic-my-plugin-usage" {
-  description = "Basic usage example for my-plugin"
-  version     = "1.0.0"
-
-  step "simple_action" {
-    plugin = "my-plugin"
-    action = "my-action"
-    
-    params = {
-      required_param = "hello world"
-    }
-  }
-
-  step "use_result" {
-    plugin = "shell"
-    action = "exec"
-    
-    depends_on = ["simple_action"]
-    
-    params = {
-      command = "echo 'Result: ${simple_action.result}'"
-    }
-  }
-}
-```
-
-```hcl
-# samples/advanced-features.hcl
-workflow "advanced-my-plugin-features" {
-  description = "Advanced features and error handling"
-  version     = "1.0.0"
-
-  variable "api_endpoint" {
-    type        = string
-    default     = "https://api.example.com"
-    description = "API endpoint URL"
-  }
-
-  step "complex_action" {
-    plugin = "my-plugin"
-    action = "my-action"
-    
-    params = {
-      required_param = var.api_endpoint
-      optional_param = 30
-      list_param     = ["option1", "option2", "option3"]
-      object_param = {
-        nested_key = "nested_value"
-        timeout    = 60
-      }
-    }
-  }
-
-  step "conditional_step" {
-    plugin = "shell"
-    action = "exec"
-    
-    depends_on = ["complex_action"]
-    
-    params = {
-      command = "echo 'Success: ${complex_action.status_code == 200}'"
-    }
-  }
-}
-```
-
-## Distribution Process
-
-### 1. Development Phase
-
-1. **Create plugin** following the interface requirements
-2. **Write comprehensive tests** using the testing framework
-3. **Create documentation** following the standards
-4. **Test locally** with sample workflows
-
-### 2. Repository Submission
-
-#### Option A: Submit to Official Repository
-
-1. **Fork the official repository**:
-```bash
-git clone https://github.com/corynth/corynthplugins.git
-cd corynthplugins
-git checkout -b add-my-plugin
-```
-
-2. **Add your plugin**:
-```bash
-mkdir my-plugin
-# Copy your plugin files
-cp -r /path/to/my-plugin/* my-plugin/
-```
-
-3. **Update registry.json**:
-```json
-{
-  "name": "my-plugin",
-  "version": "1.0.0",
-  "description": "Brief description of the plugin",
-  "author": "Your Name",
-  "format": "source",
-  "installation": "Automatically compiled when first used",
-  "tags": ["category", "functionality", "integration"],
-  "actions": [
-    {
-      "name": "my-action",
-      "description": "Description of the action",
-      "example": "Example usage"
-    }
-  ],
-  "requirements": {"corynth": ">=1.2.0"}
-}
-```
-
-4. **Submit pull request**:
-```bash
-git add .
-git commit -m "Add my-plugin: Brief description"
-git push origin add-my-plugin
-# Create pull request on GitHub
-```
-
-#### Option B: Create Your Own Plugin Repository
-
-1. **Create repository structure**:
-```bash
-mkdir my-corynth-plugins
-cd my-corynth-plugins
-git init
-
-# Create registry.json
-cat > registry.json << EOF
-{
-  "name": "My Plugin Collection",
-  "description": "Custom plugins for specific use cases",
-  "version": "1.0.0",
-  "plugins": [
-    {
-      "name": "my-plugin",
-      "version": "1.0.0",
-      "description": "Custom plugin functionality",
-      "author": "Your Name",
-      "path": "my-plugin",
-      "tags": ["custom", "specific-domain"]
-    }
-  ]
-}
-EOF
-
-# Add your plugin
-mkdir my-plugin
-cp -r /path/to/my-plugin/* my-plugin/
-```
-
-2. **Configure users to use your repository**:
-
-Users can then configure your repository in their `corynth.hcl`:
-```hcl
-plugins {
-  repositories {
-    name     = "my-plugins"
-    url      = "https://github.com/yourname/my-corynth-plugins"
-    branch   = "main"
-    priority = 1  # Higher priority than official
-  }
-  
-  repositories {
-    name     = "official"
-    url      = "https://github.com/corynth/corynthplugins"
-    branch   = "main"
-    priority = 2  # Fallback
-  }
-}
-```
-
-Or via environment variable:
-```bash
-export CORYNTH_PLUGIN_REPO="https://github.com/yourname/my-corynth-plugins.git"
-```
-
-#### Option C: Private/Corporate Repository
-
-1. **Create private repository**:
-```bash
-# Private GitHub repository
-gh repo create mycompany/corynth-plugins --private
-
-# GitLab, Bitbucket, or on-premise Git
-git clone https://git.company.com/devtools/corynth-plugins.git
-```
-
-2. **Configure authentication**:
-```bash
-# For GitHub
-export GITHUB_TOKEN="ghp_your_token_here"
-
-# For general Git authentication
-export GIT_USERNAME="your-username"
-export GIT_PASSWORD="your-password"
-
-# For SSH key authentication
-# Ensure SSH keys are configured for the Git server
-```
-
-3. **Repository structure**:
-```
-my-company-plugins/
-├── registry.json           # Plugin registry
-├── database/              # Database plugins
-│   ├── plugin.go
-│   ├── README.md
-│   └── samples/
-├── monitoring/            # Monitoring plugins
-│   ├── plugin.go
-│   ├── README.md
-│   └── samples/
-└── deployment/           # Deployment plugins
-    ├── plugin.go
-    ├── README.md
-    └── samples/
-```
-
-### 3. Review Process
-
-The plugin will be reviewed for:
-- **Code quality** and security
-- **Interface compliance**
-- **Documentation completeness**
-- **Test coverage**
-- **Performance considerations**
-
-### 4. Publication
-
-Once approved:
-- Plugin is merged into the main branch
-- Registry is updated automatically
-- Plugin becomes available for all Corynth users
-- Automatic testing ensures compatibility
-
 ## Best Practices
 
 ### Security
-- **Validate all inputs** thoroughly
-- **Sanitize file paths** to prevent traversal attacks
-- **Use secure defaults** for all parameters
-- **Handle credentials securely** (environment variables, not parameters)
-- **Limit resource usage** with timeouts and size limits
+- **Validate all inputs** thoroughly before processing
+- **Sanitize file paths** to prevent directory traversal attacks  
+- **Use subprocess with shell=False** when executing commands
+- **Handle credentials via environment variables**, not parameters
+- **Limit resource usage** with timeouts and size constraints
 
-### Performance
-- **Implement context cancellation** for long-running operations
-- **Use connection pooling** for database/API plugins
+### Performance  
+- **Keep plugins lightweight** - minimize dependencies
+- **Use efficient algorithms** for data processing
+- **Implement timeouts** for external API calls
+- **Stream large data** instead of loading into memory
 - **Cache expensive operations** when appropriate
-- **Provide progress feedback** for long operations
-- **Optimize memory usage** for large data processing
 
 ### Error Handling
-- **Return meaningful error messages** with context
-- **Use structured errors** when possible
-- **Implement retry logic** for transient failures
+- **Return structured errors** as JSON objects
+- **Provide meaningful error messages** with context
+- **Handle edge cases gracefully**
 - **Validate parameters early** before expensive operations
-- **Clean up resources** properly in all code paths
+- **Use try-catch blocks** around all external operations
 
-### Compatibility
-- **Support multiple OS/architectures** when possible
-- **Use standard Go libraries** for portability
-- **Version your plugin APIs** for backward compatibility
-- **Test on different Go versions**
-- **Document external dependencies** clearly
+### Code Quality
+```python
+# Good practices example
+import json
+import sys
+import logging
+from typing import Dict, Any, Optional
 
-### Code Organization
-```go
-// Organize code into logical sections
-type MyPlugin struct {
-    // Plugin state (avoid global state)
-    config *Config
-    client *http.Client
-}
-
-// Group related functionality
-func (p *MyPlugin) executeAPIAction(ctx context.Context, params map[string]interface{}) (map[string]interface{}, error) {
-    // Implementation
-}
-
-func (p *MyPlugin) executeDatabaseAction(ctx context.Context, params map[string]interface{}) (map[string]interface{}, error) {
-    // Implementation
-}
-
-// Helper functions for common operations
-func (p *MyPlugin) validateAPIParams(params map[string]interface{}) error {
-    // Validation logic
-}
-
-func (p *MyPlugin) buildAPIRequest(params map[string]interface{}) (*http.Request, error) {
-    // Request building logic
-}
+class MyPlugin:
+    def __init__(self):
+        # Initialize logging
+        logging.basicConfig(level=logging.INFO)
+        self.logger = logging.getLogger(__name__)
+    
+    def validate_params(self, params: Dict[str, Any], required: list) -> Optional[str]:
+        """Validate required parameters"""
+        for param in required:
+            if param not in params:
+                return f"Missing required parameter: {param}"
+        return None
+    
+    def execute(self, action: str, params: Dict[str, Any]) -> Dict[str, Any]:
+        """Execute action with proper error handling"""
+        try:
+            self.logger.info(f"Executing action: {action}")
+            
+            if action == "my-action":
+                # Validate parameters
+                error = self.validate_params(params, ["required_param"])
+                if error:
+                    return {"error": error}
+                
+                # Execute action
+                result = self._do_my_action(params)
+                self.logger.info("Action completed successfully")
+                return result
+            
+            return {"error": f"Unknown action: {action}"}
+            
+        except Exception as e:
+            self.logger.error(f"Action failed: {e}")
+            return {"error": str(e)}
 ```
 
 ## Troubleshooting
 
 ### Common Issues
 
-#### Plugin Not Found
+#### Plugin Not Executable
 ```
-Error: plugin 'my-plugin' not found in any repository
+bash: ./my-plugin.py: Permission denied
 ```
-**Solution**: Ensure plugin is in the corynthplugins repository and registry.json is updated.
+**Solution**: Make plugin executable: `chmod +x my-plugin.py`
 
-#### Compilation Errors
+#### JSON Parsing Errors
 ```
-Error: failed to compile plugin: undefined symbol
+{"error": "Expecting value: line 1 column 1 (char 0)"}
 ```
-**Solution**: Check import paths and ensure all dependencies are properly defined in go.mod.
+**Solution**: Ensure valid JSON is passed via stdin. Check for empty input.
 
-#### Interface Compliance
+#### Missing Dependencies  
 ```
-Error: ExportedPlugin does not implement Plugin interface
+ModuleNotFoundError: No module named 'requests'
 ```
-**Solution**: Verify all interface methods are implemented with correct signatures.
+**Solution**: Install required dependencies or include requirements.txt
 
-#### Runtime Errors
+#### Invalid Shebang Line
 ```
-Error: panic: runtime error: invalid memory address
+/usr/bin/env: 'python3': No such file or directory
 ```
-**Solution**: Add nil checks and proper error handling throughout the code.
+**Solution**: Verify Python3 is installed or adjust shebang line
 
 ### Debugging Tips
 
-1. **Use Corynth logging system for structured, consistent logging**:
-
-```go
-import (
-    "context"
-    "time"
-    "github.com/corynth/corynth/pkg/logging"
-)
-
-type MyPlugin struct {
-    logger *logging.Logger
-}
-
-func NewMyPlugin() *MyPlugin {
-    return &MyPlugin{
-        logger: logging.NewDefaultLogger("my-plugin"),
-    }
-}
-
-func (p *MyPlugin) Execute(ctx context.Context, action string, params map[string]interface{}) (map[string]interface{}, error) {
-    p.logger.Info("Executing action: %s", action)
-    p.logger.Debug("Parameters: %+v", params)
-    
-    start := time.Now()
-    result, err := p.doWork(ctx, params)
-    duration := time.Since(start)
-    
-    if err != nil {
-        p.logger.Error("Action '%s' failed after %v: %v", action, duration, err)
-        return nil, err
-    }
-    
-    p.logger.Info("Action '%s' completed successfully in %v", action, duration)
-    p.logger.Debug("Result: %+v", result)
-    return result, nil
-}
-
-// Use appropriate log levels:
-// - Debug: Detailed debugging information
-// - Info: General operational information  
-// - Warn: Warning conditions (non-fatal)
-// - Error: Error conditions (operation failed)
-// - Fatal: Critical errors (will exit)
-```
-
-Enable debug logging for your plugin during development:
+1. **Test plugin manually** before using with Corynth:
 ```bash
-export CORYNTH_PLUGIN_LOG_LEVEL="debug"
-corynth apply your-workflow.hcl
+# Test each command
+./plugin.py metadata
+./plugin.py actions
+echo '{"test": "value"}' | ./plugin.py my-action
 ```
 
-2. **Test locally before distribution**:
+2. **Add debug logging**:
+```python
+import logging
+logging.basicConfig(level=logging.DEBUG)
+logger = logging.getLogger(__name__)
+logger.debug(f"Received params: {params}")
+```
+
+3. **Validate JSON output**:
 ```bash
-# Build plugin manually
-go build -buildmode=plugin -o my-plugin.so plugin.go
-
-# Test plugin loading
-go run test_plugin_loading.go
+./plugin.py metadata | jq .
 ```
 
-3. **Use the validation workflow**:
+4. **Check for common issues**:
+- Proper shebang line (`#!/usr/bin/env python3`)
+- Executable permissions (`chmod +x`)
+- Valid JSON output format
+- All required parameters handled
+- Error cases return JSON with "error" key
+
+## Examples
+
+### Working Calculator Plugin
+
+The calculator plugin demonstrates a complete implementation:
+
+```python
+#!/usr/bin/env python3
+"""
+Corynth Calculator JSON Protocol Plugin
+"""
+import json
+import sys
+from typing import Dict, Any
+
+class CalculatorPlugin:
+    def __init__(self):
+        self.metadata = {
+            "name": "calculator",
+            "version": "1.0.0",
+            "description": "Mathematical calculations and unit conversions",
+            "author": "Corynth Team",
+            "tags": ["math", "calculation", "utility"]
+        }
+    
+    def get_metadata(self) -> Dict[str, Any]:
+        return self.metadata
+    
+    def get_actions(self) -> Dict[str, Any]:
+        return {
+            "calculate": {
+                "description": "Perform mathematical calculations",
+                "inputs": {
+                    "expression": {
+                        "type": "string", 
+                        "required": True, 
+                        "description": "Mathematical expression to evaluate"
+                    },
+                    "precision": {
+                        "type": "number", 
+                        "required": False, 
+                        "default": 2, 
+                        "description": "Decimal precision"
+                    }
+                },
+                "outputs": {
+                    "result": {"type": "number", "description": "Calculation result"},
+                    "expression": {"type": "string", "description": "Original expression"}
+                }
+            }
+        }
+    
+    def execute(self, action: str, params: Dict[str, Any]) -> Dict[str, Any]:
+        try:
+            if action == "calculate":
+                return self._handle_calculate(params)
+            else:
+                raise ValueError(f"Unknown action: {action}")
+        except Exception as e:
+            return {"error": str(e)}
+    
+    def _handle_calculate(self, params: Dict[str, Any]) -> Dict[str, Any]:
+        expression = params.get("expression")
+        precision = params.get("precision", 2)
+        
+        if not expression:
+            raise ValueError("expression parameter is required")
+        
+        # Simple safe evaluation - only allow basic math
+        allowed_chars = set("0123456789+-*/.()\\n\\t ")
+        if not all(c in allowed_chars for c in expression):
+            raise ValueError("Expression contains invalid characters")
+        
+        # Evaluate safely
+        try:
+            result = eval(expression, {"__builtins__": {}}, {})
+            if isinstance(result, (int, float)):
+                result = round(float(result), precision)
+            else:
+                raise ValueError("Expression must result in a number")
+        except Exception as e:
+            raise ValueError(f"Invalid expression: {e}")
+        
+        return {
+            "result": result,
+            "expression": expression
+        }
+
+def main():
+    if len(sys.argv) < 2:
+        print(json.dumps({"error": "action required"}))
+        sys.exit(1)
+        
+    action = sys.argv[1]
+    
+    # Read parameters from stdin
+    try:
+        params_data = sys.stdin.read().strip()
+        params = json.loads(params_data) if params_data else {}
+    except json.JSONDecodeError:
+        params = {}
+    
+    plugin = CalculatorPlugin()
+    
+    if action == "metadata":
+        result = plugin.get_metadata()
+    elif action == "actions":
+        result = plugin.get_actions()
+    else:
+        result = plugin.execute(action, params)
+    
+    print(json.dumps(result))
+
+if __name__ == "__main__":
+    main()
+```
+
+This plugin can be tested directly:
 ```bash
-corynth validate my-test-workflow.hcl
-corynth plan my-test-workflow.hcl --detailed
+# Install and test
+cp calculator.py ~/.corynth/plugins/calculator
+chmod +x ~/.corynth/plugins/calculator
+
+# Test commands
+./calculator metadata
+./calculator actions
+echo '{"expression": "10 + 5 * 2", "precision": 2}' | ./calculator calculate
 ```
-
-### Getting Help
-
-- **Documentation**: Check this guide and existing plugin examples
-- **Issues**: Create issues in the corynthplugins repository
-- **Community**: Join the Corynth community discussions
-- **Examples**: Study existing plugins for patterns and best practices
 
 ---
 
-This guide provides everything needed to create production-ready Corynth plugins. Follow the patterns, test thoroughly, and contribute to the growing ecosystem of workflow automation tools.
+This guide provides everything needed to create robust, language-independent Corynth plugins using the JSON protocol architecture. The approach offers maximum flexibility, version independence, and process isolation while maintaining simplicity and reliability.
