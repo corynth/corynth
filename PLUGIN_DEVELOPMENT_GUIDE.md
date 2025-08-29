@@ -433,6 +433,62 @@ Your plugin will then be available via:
 corynth plugin install my-plugin
 ```
 
+## Remote Installation Architecture
+
+### Self-Contained Wrappers
+
+When plugins are installed remotely via `corynth plugin install`, the system creates **self-contained wrapper scripts** that embed your plugin's source code directly. This ensures:
+
+- ✅ **Zero external dependencies** - plugin runs independently  
+- ✅ **Automatic compilation** - Go source compiled on-demand
+- ✅ **Version consistency** - exact source code from repository
+- ✅ **Fast execution** - minimal overhead after first compilation
+
+### Installation Process
+
+1. **Repository Clone**: Corynth clones the plugin repository temporarily
+2. **Source Embedding**: Your `plugin.go` and `go.mod` are embedded into a bash wrapper
+3. **Self-Contained Creation**: Wrapper script contains all necessary source code
+4. **Dynamic Compilation**: On first execution, Go code is compiled to temporary binary
+5. **Execution**: Compiled binary executes with full JSON protocol support
+
+### Installation Priority
+
+The plugin installer searches for plugins in this order:
+
+1. **JSON Protocol Scripts** (`plugin`) - **Highest Priority**
+2. Platform-specific binaries (`plugin-darwin`, `plugin-linux`)  
+3. Generic plugin binaries (`my-plugin-plugin`, `plugin`)
+4. Plugin name only (`my-plugin`)
+
+This prioritization ensures JSON protocol plugins (which work reliably) are preferred over compiled binaries that may have compatibility issues.
+
+### Wrapper Script Structure
+
+The generated self-contained wrapper looks like this:
+
+```bash
+#!/bin/bash
+# Corynth Self-Contained JSON Protocol Plugin: my-plugin
+
+set -e
+TEMP_DIR=$(mktemp -d)
+trap "rm -rf '$TEMP_DIR'" EXIT
+
+# Embedded source code extracted to temporary directory
+# Go compilation happens here if needed
+# Binary execution with full argument/stdin forwarding
+```
+
+### Development Implications
+
+- **Standard Structure**: Keep using the `plugin`/`plugin.go`/`go.mod` structure
+- **Dependency Management**: All go.mod dependencies are preserved and available
+- **No Changes Required**: Existing plugins work without modification
+- **Performance**: First run compiles (~1s), subsequent runs are immediate
+
+This architecture ensures robust remote plugin installation while maintaining the simplicity of local development.
+
 ## Performance Tips
 
 - Keep plugins **lightweight** - they start fresh for each execution
