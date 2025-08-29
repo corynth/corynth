@@ -113,14 +113,57 @@ workflow "with-variables" {
 ### Variable Usage
 
 ```hcl
-# Reference variables with var.name
-url = var.api_endpoint
+# Reference variables with {{.Variables.name}} template syntax
+url = "{{.Variables.api_endpoint}}"
 
-# String interpolation
-message = "Hello ${var.username}!"
+# String interpolation in templates
+message = "Hello {{.Variables.username}}!"
 
-# Complex expressions
-timeout = var.base_timeout * 2
+# Conditional expressions
+timeout = "{{if .Variables.is_production}}{{.Variables.base_timeout | mul 2}}{{else}}{{.Variables.base_timeout}}{{end}}"
+
+# Boolean conditions
+condition = "{{.Variables.deploy_enabled}}"
+```
+
+## Template System
+
+Corynth uses Go template syntax (`{{ }}`) for dynamic content in workflow parameters, conditions, and values.
+
+### Template Data Access
+
+| Context | Syntax | Example |
+|---------|---------|---------|
+| Variables | `{{.Variables.name}}` | `{{.Variables.api_url}}` |
+| Step Output | `{{.Steps.stepname.output.field}}` | `{{.Steps.fetch_data.output.body}}` |
+| Step Status | `{{.Steps.stepname.status}}` | `{{.Steps.build.status}}` |
+| Locals | `{{.Locals.name}}` | `{{.Locals.config_file}}` |
+
+### Template Functions
+
+| Function | Usage | Example |
+|----------|-------|---------|
+| `eq` | Equality | `{{eq .Variables.env "prod"}}` |
+| `ne` | Not equal | `{{ne .Variables.debug false}}` |
+| `and` | Boolean AND | `{{and .Variables.deploy .Variables.tests_pass}}` |
+| `or` | Boolean OR | `{{or (eq .Variables.env "dev") (eq .Variables.env "test")}}` |
+| `not` | Boolean NOT | `{{not .Variables.skip_deploy}}` |
+| `if` | Conditional | `{{if .Variables.debug}}--verbose{{end}}` |
+
+### Conditional Examples
+
+```hcl
+# Simple condition
+condition = "{{.Variables.enabled}}"
+
+# Equality check  
+condition = "{{eq .Variables.environment \"production\"}}"
+
+# Complex condition
+condition = "{{and .Variables.deploy_enabled (eq .Steps.tests.output.exit_code 0)}}"
+
+# Conditional parameter
+command = "echo 'Mode: {{if .Variables.debug}}DEBUG{{else}}NORMAL{{end}}'"
 ```
 
 ## Steps
@@ -668,12 +711,13 @@ params = {
 }
 ```
 
-### String Interpolation
+### Template Syntax
 ```hcl
 params = {
-  simple_interpolation = "${variable_name}"
-  complex_interpolation = "Result: ${step_name.output_field}"
-  conditional = "${condition ? 'yes' : 'no'}"
+  simple_variable = "{{.Variables.variable_name}}"
+  step_output = "Result: {{.Steps.step_name.output.field}}"
+  conditional = "{{if .Variables.condition}}yes{{else}}no{{end}}"
+  complex_logic = "{{if and .Variables.deploy_enabled (eq .Variables.environment \"production\")}}deploy{{end}}"
 }
 ```
 

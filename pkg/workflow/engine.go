@@ -146,7 +146,7 @@ func (e *Engine) LoadWorkflow(filePath string) (*Workflow, error) {
 	var config WorkflowConfig
 	diags = gohcl.DecodeBody(file.Body, nil, &config)
 	if diags.HasErrors() {
-		return nil, fmt.Errorf("failed to decode workflow: %s", diags.Error())
+		return nil, fmt.Errorf("workflow validation failed:\n%s", formatHCLDiagnostics(diags, filePath))
 	}
 
 	if len(config.Workflows) == 0 {
@@ -877,4 +877,74 @@ func (e *Engine) ctyValueToGo(val cty.Value) interface{} {
 		// For complex types, return string representation
 		return val.GoString()
 	}
+}
+
+// formatHCLDiagnostics formats HCL diagnostics into user-friendly error messages
+func formatHCLDiagnostics(diags hcl.Diagnostics, filename string) string {
+	var messages []string
+	
+	for _, diag := range diags {
+		if diag.Severity == hcl.DiagError {
+			// Extract useful information from the diagnostic
+			subject := ""
+			if diag.Subject != nil {
+				subject = fmt.Sprintf("at line %d, column %d", 
+					diag.Subject.Start.Line, diag.Subject.Start.Column)
+			}
+			
+			// Create user-friendly error message based on common patterns
+			userMessage := translateHCLError(diag.Summary, diag.Detail)
+			
+			if subject != "" {
+				messages = append(messages, fmt.Sprintf("  • %s %s", userMessage, subject))
+			} else {
+				messages = append(messages, fmt.Sprintf("  • %s", userMessage))
+			}
+		}
+	}
+	
+	if len(messages) == 0 {
+		return "Unknown validation errors occurred"
+	}
+	
+	return strings.Join(messages, "\n")
+}
+
+// translateHCLError converts technical HCL errors into user-friendly messages
+func translateHCLError(summary, detail string) string {
+	// Common HCL error patterns and their user-friendly translations
+	errorTranslations := map[string]string{
+		"Variables not allowed":         "Invalid syntax - use quotes around values (e.g., \"value\" instead of bare words)",
+		"Unsupported argument":          "Unknown parameter - check the plugin documentation for valid parameters",
+		"Missing required argument":     "Required parameter is missing - check the plugin documentation",
+		"Duplicate argument":            "Parameter specified multiple times - each parameter should only appear once",
+		"Invalid block type":            "Unknown block type - valid blocks are: workflow, variable, step",
+		"Missing item separator":        "Missing comma between items in list or map",
+		"Unclosed quoted string":       "Missing closing quote for string value",
+		"Invalid character":             "Invalid character found - check for typos or special characters",
+		"Unexpected token":              "Syntax error - check for missing punctuation or incorrect formatting",
+		"Invalid reference":             "Variable or step reference not found - ensure it's defined before use",
+		"Block label required":          "Block missing a name - workflow and step blocks need names",
+		"Invalid function call":         "Unknown function used in expression - check function name and syntax",
+	}
+	
+	// Check for exact matches first
+	if translated, ok := errorTranslations[summary]; ok {
+		return translated
+	}
+	
+	// Check for partial matches (case insensitive)
+	summaryLower := strings.ToLower(summary)
+	for pattern, translation := range errorTranslations {
+		if strings.Contains(summaryLower, strings.ToLower(pattern)) {
+			return translation
+		}
+	}
+	
+	// Provide additional context based on detail if no pattern matches
+	if detail != "" && len(detail) < 200 { // Only include detail if it's reasonably short
+		return fmt.Sprintf("%s: %s", summary, detail)
+	}
+	
+	return summary
 }

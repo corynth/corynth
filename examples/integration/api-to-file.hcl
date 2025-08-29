@@ -13,11 +13,8 @@ workflow "api-to-file" {
     action = "get"
     
     params = {
-      url = var.api_url
+      url = "{{.Variables.api_url}}"
       timeout = 30
-      headers = {
-        "User-Agent" = "Corynth/1.2.0"
-      }
     }
   }
 
@@ -28,7 +25,7 @@ workflow "api-to-file" {
     
     params = {
       path = "/tmp/api-data.json"
-      content = "${fetch_data.body}"
+      content = "{{.Steps.fetch_data.output.body}}"
     }
   }
 

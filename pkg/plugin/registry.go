@@ -1,6 +1,7 @@
 package plugin
 
 import (
+	"crypto/sha256"
 	"encoding/json"
 	"fmt"
 	"io"
@@ -35,6 +36,7 @@ type RegistryPlugin struct {
 	Tags         []string           `json:"tags"`
 	Actions      []RegistryAction   `json:"actions"`
 	Requirements RegistryRequirements `json:"requirements"`
+	Security     SecurityInfo       `json:"security"`
 }
 
 // RegistryAction represents a plugin action in the registry
@@ -49,6 +51,27 @@ type RegistryRequirements struct {
 	Corynth string   `json:"corynth"`
 	OS      []string `json:"os"`
 	Arch    []string `json:"arch"`
+}
+
+// SecurityInfo represents plugin security information
+type SecurityInfo struct {
+	TrustLevel     string    `json:"trust_level"`     // official, verified, community
+	SignatureURL   string    `json:"signature_url"`   // URL to signature file
+	ChecksumURL    string    `json:"checksum_url"`    // URL to checksum file
+	SHA256         string    `json:"sha256"`          // SHA256 hash
+	ScannedAt      string    `json:"scanned_at"`      // Last security scan date
+	ScanResults    []string  `json:"scan_results"`    // Security scan findings
+	Publisher      string    `json:"publisher"`       // Official publisher
+	Verified       bool      `json:"verified"`        // Signature verified
+	AuditTrail     []AuditEntry `json:"audit_trail"`  // Change history
+}
+
+// AuditEntry represents an audit log entry
+type AuditEntry struct {
+	Action    string `json:"action"`     // published, updated, verified
+	Timestamp string `json:"timestamp"`  // RFC3339 format
+	Actor     string `json:"actor"`      // Who performed the action
+	Details   string `json:"details"`    // Additional information
 }
 
 // FetchRegistry fetches the plugin registry from a repository
@@ -308,4 +331,140 @@ func getRepoOwnerAndName(repoURL string) string {
 		return fmt.Sprintf("%s/%s", parts[len(parts)-2], parts[len(parts)-1])
 	}
 	return ""
+}
+
+// Security verification functions
+
+// VerifyPluginSecurity verifies the security of a plugin before installation
+func (m *Manager) VerifyPluginSecurity(plugin *RegistryPlugin, pluginPath string) error {
+	security := plugin.Security
+	
+	// Check trust level
+	if security.TrustLevel == "" {
+		return fmt.Errorf("plugin has no trust level specified")
+	}
+	
+	// For non-official plugins, require additional verification
+	if security.TrustLevel != "official" && !security.Verified {
+		fmt.Printf("Warning: Installing unverified plugin '%s' from trust level '%s'\n", 
+			plugin.Name, security.TrustLevel)
+		
+		// Check for basic security scan results
+		if len(security.ScanResults) > 0 {
+			for _, result := range security.ScanResults {
+				if strings.Contains(strings.ToLower(result), "malware") ||
+				   strings.Contains(strings.ToLower(result), "virus") ||
+				   strings.Contains(strings.ToLower(result), "threat") {
+					return fmt.Errorf("security scan detected potential threat: %s", result)
+				}
+			}
+		}
+	}
+	
+	// Verify SHA256 checksum if provided
+	if security.SHA256 != "" {
+		if err := m.verifyFileChecksum(pluginPath, security.SHA256); err != nil {
+			return fmt.Errorf("checksum verification failed: %w", err)
+		}
+	}
+	
+	// Check file size (basic sanity check)
+	if err := m.checkPluginFileSize(pluginPath, plugin.Size); err != nil {
+		return fmt.Errorf("file size check failed: %w", err)
+	}
+	
+	return nil
+}
+
+// verifyFileChecksum verifies the SHA256 checksum of a file
+func (m *Manager) verifyFileChecksum(filePath, expectedSHA256 string) error {
+	if expectedSHA256 == "" {
+		return nil // No checksum to verify
+	}
+	
+	data, err := os.ReadFile(filePath)
+	if err != nil {
+		return fmt.Errorf("failed to read file: %w", err)
+	}
+	
+	actualSHA256 := fmt.Sprintf("%x", sha256.Sum256(data))
+	if actualSHA256 != expectedSHA256 {
+		return fmt.Errorf("checksum mismatch: expected %s, got %s", expectedSHA256, actualSHA256)
+	}
+	
+	return nil
+}
+
+// checkPluginFileSize checks if plugin file size is reasonable
+func (m *Manager) checkPluginFileSize(filePath, expectedSize string) error {
+	info, err := os.Stat(filePath)
+	if err != nil {
+		return fmt.Errorf("failed to stat file: %w", err)
+	}
+	
+	// Check for suspicious file sizes
+	size := info.Size()
+	if size > 100*1024*1024 { // 100MB limit
+		return fmt.Errorf("plugin file too large: %d bytes", size)
+	}
+	
+	if size < 1024 { // 1KB minimum
+		return fmt.Errorf("plugin file too small: %d bytes", size)
+	}
+	
+	return nil
+}
+
+// GetPluginSecurityInfo returns detailed security information for a plugin
+func (m *Manager) GetPluginSecurityInfo(name string) (*SecurityInfo, error) {
+	plugin, err := m.GetPluginInfo(name)
+	if err != nil {
+		return nil, err
+	}
+	
+	return &plugin.Security, nil
+}
+
+// FilterPluginsByTrustLevel filters plugins by security trust level
+func (m *Manager) FilterPluginsByTrustLevel(plugins []RegistryPlugin, trustLevel string) []RegistryPlugin {
+	var filtered []RegistryPlugin
+	
+	for _, plugin := range plugins {
+		if plugin.Security.TrustLevel == trustLevel {
+			filtered = append(filtered, plugin)
+		}
+	}
+	
+	return filtered
+}
+
+// GetSecurityStats returns security statistics for the registry
+func (m *Manager) GetSecurityStats() (map[string]int, error) {
+	plugins, err := m.ListAvailable()
+	if err != nil {
+		return nil, err
+	}
+	
+	stats := map[string]int{
+		"total":     len(plugins),
+		"official":  0,
+		"verified":  0,
+		"community": 0,
+		"unscanned": 0,
+	}
+	
+	for _, plugin := range plugins {
+		switch plugin.Security.TrustLevel {
+		case "official":
+			stats["official"]++
+		case "verified":
+			stats["verified"]++
+		case "community":
+			stats["community"]++
+		default:
+			stats["unscanned"]++
+		}
+	}
+	
+	return stats, nil
 }

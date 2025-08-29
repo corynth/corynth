@@ -19,7 +19,7 @@ workflow "simple-pipeline" {
     action = "clone"
     
     params = {
-      url = var.repo_url
+      url = "{{.Variables.repo_url}}"
       path = "/tmp/ci-build"
       branch = "main"
     }
@@ -55,7 +55,7 @@ workflow "simple-pipeline" {
     plugin = "shell"
     action = "exec"
     depends_on = ["run_tests"]
-    condition = "${run_tests.exit_code == 0}"
+    condition = "{{eq .Steps.run_tests.output.exit_code 0}}"
     
     params = {
       command = "cd /tmp/ci-build && echo 'Building project...' && sleep 2 && echo 'Build completed'"
@@ -69,7 +69,7 @@ workflow "simple-pipeline" {
     
     params = {
       path = "/tmp/ci-build/RELEASE.md"
-      content = "# Release Notes\n\nBuild completed successfully!\n\n- Commit: ${clone_source.commit}\n- Tests: Passed\n- Build: Success\n- Timestamp: $(date)"
+      content = "# Release Notes\n\nBuild completed successfully!\n\n- Commit: {{.Steps.clone_source.output.commit}}\n- Tests: Passed\n- Build: Success\n- Timestamp: $(date)"
     }
   }
 
@@ -77,14 +77,11 @@ workflow "simple-pipeline" {
     plugin = "http"
     action = "post"
     depends_on = ["create_release_notes"]
-    condition = "${var.notification_url != \"\"}"
+    condition = "{{ne .Variables.notification_url \"\"}}"
     
     params = {
-      url = var.notification_url
-      body = "{\"status\": \"success\", \"message\": \"Pipeline completed successfully\", \"commit\": \"${clone_source.commit}\"}"
-      headers = {
-        "Content-Type" = "application/json"
-      }
+      url = "{{.Variables.notification_url}}"
+      body = "{\"status\": \"success\", \"message\": \"Pipeline completed successfully\", \"commit\": \"{{.Steps.clone_source.output.commit}}\"}"
     }
     
     continue_on {

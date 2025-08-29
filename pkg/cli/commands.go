@@ -115,6 +115,8 @@ func NewPluginCommand() *cobra.Command {
 		NewPluginInitCommand(),
 		newPluginDoctorCommand(),
 		newPluginCleanCommand(),
+		newPluginSecurityCommand(),
+		newPluginStatsCommand(),
 	)
 
 	return cmd
@@ -821,4 +823,135 @@ func newConfigShowCommand() *cobra.Command {
 			return nil
 		},
 	}
+}
+
+// newPluginSecurityCommand creates the plugin security command
+func newPluginSecurityCommand() *cobra.Command {
+	cmd := &cobra.Command{
+		Use:   "security [plugin-name]",
+		Short: "Show plugin security information",
+		Long:  "Display detailed security information for a plugin including trust level, checksums, and scan results.",
+		Args:  cobra.ExactArgs(1),
+		RunE: func(cmd *cobra.Command, args []string) error {
+			cfg, err := loadConfig("")
+			if err != nil {
+				return err
+			}
+
+			manager, err := initializePluginManager(cfg)
+			if err != nil {
+				return err
+			}
+
+			pluginName := args[0]
+			securityInfo, err := manager.GetPluginSecurityInfo(pluginName)
+			if err != nil {
+				return fmt.Errorf("failed to get security info for plugin '%s': %w", pluginName, err)
+			}
+
+			fmt.Printf("%s %s\n", Header("Security Information for"), Success(pluginName))
+			fmt.Printf("%s %s\n", Label("Trust Level:"), getTrustLevelDisplay(securityInfo.TrustLevel))
+			fmt.Printf("%s %s\n", Label("Publisher:"), Value(securityInfo.Publisher))
+			fmt.Printf("%s %s\n", Label("Verified:"), getBoolDisplay(securityInfo.Verified))
+			
+			if securityInfo.SHA256 != "" {
+				fmt.Printf("%s %s\n", Label("SHA256:"), Value(securityInfo.SHA256))
+			}
+			
+			if securityInfo.ScannedAt != "" {
+				fmt.Printf("%s %s\n", Label("Last Scan:"), Value(securityInfo.ScannedAt))
+			}
+			
+			if len(securityInfo.ScanResults) > 0 {
+				fmt.Printf("%s\n", Label("Scan Results:"))
+				for _, result := range securityInfo.ScanResults {
+					fmt.Printf("  %s %s\n", BulletPoint(""), Value(result))
+				}
+			}
+			
+			if len(securityInfo.AuditTrail) > 0 {
+				fmt.Printf("%s\n", Label("Audit Trail:"))
+				for _, entry := range securityInfo.AuditTrail {
+					fmt.Printf("  %s %s by %s at %s\n", 
+						BulletPoint(""), 
+						Success(entry.Action),
+						Value(entry.Actor),
+						Value(entry.Timestamp))
+					if entry.Details != "" {
+						fmt.Printf("    %s\n", DimText(entry.Details))
+					}
+				}
+			}
+
+			return nil
+		},
+	}
+	return cmd
+}
+
+// newPluginStatsCommand creates the plugin statistics command
+func newPluginStatsCommand() *cobra.Command {
+	cmd := &cobra.Command{
+		Use:   "stats",
+		Short: "Show plugin registry security statistics",
+		Long:  "Display security statistics for all plugins in the registry including trust levels and verification status.",
+		RunE: func(cmd *cobra.Command, args []string) error {
+			cfg, err := loadConfig("")
+			if err != nil {
+				return err
+			}
+
+			manager, err := initializePluginManager(cfg)
+			if err != nil {
+				return err
+			}
+
+			stats, err := manager.GetSecurityStats()
+			if err != nil {
+				return fmt.Errorf("failed to get security statistics: %w", err)
+			}
+
+			fmt.Printf("%s\n", Header("Plugin Registry Security Statistics"))
+			fmt.Printf("%s %s\n", Label("Total Plugins:"), Value(fmt.Sprintf("%d", stats["total"])))
+			fmt.Printf("%s %s\n", Label("Official:"), Colorize(SuccessColor, fmt.Sprintf("%d", stats["official"])))
+			fmt.Printf("%s %s\n", Label("Verified:"), Colorize(InfoColor, fmt.Sprintf("%d", stats["verified"])))
+			fmt.Printf("%s %s\n", Label("Community:"), Colorize(WarningColor, fmt.Sprintf("%d", stats["community"])))
+			fmt.Printf("%s %s\n", Label("Unscanned:"), Colorize(ErrorColor, fmt.Sprintf("%d", stats["unscanned"])))
+			
+			// Calculate percentages
+			total := stats["total"]
+			if total > 0 {
+				fmt.Printf("\n%s\n", Header("Trust Level Distribution"))
+				fmt.Printf("%s %s%%\n", Label("Official:"), Value(fmt.Sprintf("%.1f", float64(stats["official"])*100/float64(total))))
+				fmt.Printf("%s %s%%\n", Label("Verified:"), Value(fmt.Sprintf("%.1f", float64(stats["verified"])*100/float64(total))))
+				fmt.Printf("%s %s%%\n", Label("Community:"), Value(fmt.Sprintf("%.1f", float64(stats["community"])*100/float64(total))))
+				fmt.Printf("%s %s%%\n", Label("Unscanned:"), Value(fmt.Sprintf("%.1f", float64(stats["unscanned"])*100/float64(total))))
+			}
+
+			return nil
+		},
+	}
+	return cmd
+}
+
+// Helper functions for security display
+
+func getTrustLevelDisplay(trustLevel string) string {
+	switch trustLevel {
+	case "official":
+		return Colorize(SuccessColor, "Official")
+	case "verified":
+		return Colorize(InfoColor, "Verified")
+	case "community":
+		return Colorize(WarningColor, "Community")
+	default:
+		return Colorize(ErrorColor, "Unknown")
+	}
+}
+
+func getBoolDisplay(value bool) string {
+	if value {
+		return Colorize(SuccessColor, "Yes")
+	}
+	return Colorize(ErrorColor, "No")
 }

@@ -15,7 +15,6 @@ import (
 	"runtime"
 	"strings"
 	"sync"
-	"time"
 
 	"github.com/go-git/go-git/v5"
 	"github.com/go-git/go-git/v5/plumbing"
@@ -872,15 +871,22 @@ func (m *Manager) installFromGit(repo Repository, pluginName string) error {
 					continue
 				}
 				
-				// Verify plugin loads correctly before returning success
-				if err := m.loadGRPCPlugin(destPath); err != nil {
-					lastError = fmt.Errorf("load failed: %w", err)
-					if debug {
-						log.Printf("[DEBUG] Failed to load plugin: %v", err)
+				// Perform security verification for remote plugins
+				if pluginInfo, err := m.GetPluginInfo(pluginName); err == nil {
+					if err := m.VerifyPluginSecurity(pluginInfo, destPath); err != nil {
+						lastError = fmt.Errorf("security verification failed: %w", err)
+						if debug {
+							log.Printf("[DEBUG] Security verification failed: %v", err)
+						}
+						// Remove potentially unsafe plugin
+						os.Remove(destPath)
+						continue
 					}
-					// Remove failed plugin and try next path
-					os.Remove(destPath)
-					continue
+					if debug {
+						log.Printf("[DEBUG] Security verification passed for plugin '%s'", pluginName)
+					}
+				} else if debug {
+					log.Printf("[DEBUG] No security info found for plugin '%s', proceeding with basic checks", pluginName)
 				}
 				
 				// Perform health check on the plugin
@@ -1574,39 +1580,30 @@ func (m *Manager) healthCheckPlugin(pluginName string) error {
 		return fmt.Errorf("plugin '%s' not found after installation", pluginName)
 	}
 	
-	// Check if it's a gRPC plugin
-	if grpcPlugin, ok := p.(*SimpleGRPCPlugin); ok {
-		// Try to get metadata with timeout
-		ctx, cancel := context.WithTimeout(context.Background(), 5*time.Second)
-		defer cancel()
-		
-		// Note: SimpleGRPCPlugin handles process lifecycle automatically
-		
-		// Get metadata as health check
-		metadata := grpcPlugin.Metadata()
+	// For JSON protocol plugins, we can verify they respond correctly
+	if scriptPlugin, ok := p.(*ScriptPlugin); ok {
+		// Simple health check - verify metadata
+		metadata := scriptPlugin.Metadata()
 		if metadata.Name == "" {
 			return fmt.Errorf("plugin returned empty metadata")
 		}
 		
 		// Verify plugin name matches
-		if metadata.Name != pluginName && metadata.Name != "gRPC plugin: " + pluginName {
+		if metadata.Name != pluginName {
 			// Some flexibility for name format
 			if !strings.Contains(strings.ToLower(metadata.Name), strings.ToLower(pluginName)) {
 				return fmt.Errorf("plugin name mismatch: expected '%s', got '%s'", pluginName, metadata.Name)
 			}
 		}
-		
-		// Optional: Test a simple action if available
-		actions := grpcPlugin.Actions()
+		actions := scriptPlugin.Actions()
 		if len(actions) > 0 {
 			// Try to validate with empty params
-			if err := grpcPlugin.Validate(map[string]interface{}{}); err != nil {
+			if err := scriptPlugin.Validate(map[string]interface{}{}); err != nil {
 				// Validation errors are okay, we're just checking the plugin responds
 				_ = err
 			}
 		}
 		
-		_ = ctx // Context used for timeout if needed in future
 		return nil
 	}
 	
@@ -1695,29 +1692,3 @@ func copyFileWithPermissions(src, dst string, perm os.FileMode) error {
 	return os.Chmod(dst, perm)
 }
 
-// loadGRPCPlugin loads a gRPC plugin executable (simplified for now)
-func (m *Manager) loadGRPCPlugin(executablePath string) error {
-	// Extract plugin name from executable path
-	fileName := filepath.Base(executablePath)
-	if !strings.HasPrefix(fileName, "corynth-plugin-") {
-		return fmt.Errorf("invalid gRPC plugin name format: %s", fileName)
-	}
-	
-	pluginName := strings.TrimPrefix(fileName, "corynth-plugin-")
-	
-	// For now, create a simple gRPC plugin placeholder
-	// This avoids the import cycle while maintaining functionality
-	grpcPlugin := &SimpleGRPCPlugin{
-		metadata: Metadata{
-			Name:        pluginName,
-			Description: fmt.Sprintf("gRPC plugin: %s", pluginName),
-			Version:     "1.0.0",
-		},
-		executablePath: executablePath,
-	}
-	
-	// Store the plugin
-	m.plugins[pluginName] = grpcPlugin
-	
-	return nil
-}

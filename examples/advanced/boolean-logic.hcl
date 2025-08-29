@@ -23,7 +23,7 @@ workflow "boolean-logic-demo" {
   step "environment_check" {
     plugin = "shell"
     action = "exec"
-    condition = "var.environment == \"development\""
+    condition = "{{eq .Variables.environment \"development\"}}"
     
     params = {
       command = "echo 'Running in development environment'"
@@ -33,7 +33,7 @@ workflow "boolean-logic-demo" {
   step "test_suite" {
     plugin = "shell"
     action = "exec"
-    condition = "var.run_tests"
+    condition = "{{.Variables.run_tests}}"
     
     params = {
       command = "echo 'Running test suite...'"
@@ -43,7 +43,7 @@ workflow "boolean-logic-demo" {
   step "staging_deployment" {
     plugin = "shell"
     action = "exec"
-    condition = "and(var.deploy_enabled, equal(var.environment, \"staging\"))"
+    condition = "{{and .Variables.deploy_enabled (eq .Variables.environment \"staging\")}}"
     depends_on = ["test_suite"]
     
     params = {
@@ -54,7 +54,7 @@ workflow "boolean-logic-demo" {
   step "production_deployment" {
     plugin = "shell"
     action = "exec"
-    condition = "and(var.deploy_enabled, equal(var.environment, \"production\"))"
+    condition = "{{and .Variables.deploy_enabled (eq .Variables.environment \"production\")}}"
     depends_on = ["test_suite"]
     
     params = {
@@ -65,7 +65,7 @@ workflow "boolean-logic-demo" {
   step "skip_deployment" {
     plugin = "shell"
     action = "exec"
-    condition = "not(var.deploy_enabled)"
+    condition = "{{not .Variables.deploy_enabled}}"
     
     params = {
       command = "echo 'Deployment is disabled, skipping...'"
@@ -75,7 +75,7 @@ workflow "boolean-logic-demo" {
   step "complex_condition" {
     plugin = "shell"
     action = "exec"
-    condition = "or(and(var.deploy_enabled, equal(var.environment, \"production\")), equal(var.environment, \"staging\"))"
+    condition = "{{or (and .Variables.deploy_enabled (eq .Variables.environment \"production\")) (eq .Variables.environment \"staging\")}}"
     
     params = {
       command = "echo 'Complex condition met: production deploy OR staging environment'"
@@ -85,11 +85,11 @@ workflow "boolean-logic-demo" {
   step "conditional_timeout" {
     plugin = "shell"
     action = "exec"
-    condition = "var.deploy_enabled"
+    condition = "{{.Variables.deploy_enabled}}"
     
     params = {
       command = "echo 'Operation with conditional timeout'"
-      timeout = "if(equal(var.environment, \"production\"), \"300\", \"60\")"
+      timeout = "{{if (eq .Variables.environment \"production\")}}300{{else}}60{{end}}"
     }
   }
 }
