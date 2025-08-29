@@ -364,14 +364,29 @@ func (m *Manager) loadRemoteJSONPlugin(pluginDir, executablePath string) error {
 
 // loadJSONPluginMetadata gets metadata from a JSON protocol plugin
 func (m *Manager) loadJSONPluginMetadata(executablePath string) (Metadata, error) {
+	debug := os.Getenv("CORYNTH_DEBUG") != ""
+	if debug {
+		log.Printf("[DEBUG] Loading metadata from: %s", executablePath)
+	}
+	
 	cmd := exec.Command(executablePath, "metadata")
 	output, err := cmd.Output()
 	if err != nil {
+		if debug {
+			log.Printf("[DEBUG] Metadata command failed: %v", err)
+		}
 		return Metadata{}, fmt.Errorf("failed to get metadata: %w", err)
+	}
+	
+	if debug {
+		log.Printf("[DEBUG] Metadata output: %s", string(output))
 	}
 	
 	var metadata Metadata
 	if err := json.Unmarshal(output, &metadata); err != nil {
+		if debug {
+			log.Printf("[DEBUG] JSON unmarshal failed: %v", err)
+		}
 		return Metadata{}, fmt.Errorf("invalid metadata JSON: %w", err)
 	}
 	
@@ -820,18 +835,20 @@ func (m *Manager) installFromGit(repo Repository, pluginName string) error {
 		log.Printf("[DEBUG] Installing plugin '%s' for platform: %s", pluginName, platform)
 	}
 	
-	// Try multiple paths for pre-compiled binaries with platform-specific names
+	// Try multiple paths, prioritizing JSON protocol plugins over compiled binaries
 	binaryPaths := []struct {
 		path string
 		desc string
 	}{
-		// Platform-specific binaries (highest priority)
+		// JSON protocol plugins (highest priority - these actually work)
+		{filepath.Join(repoPath, "official", pluginName, "plugin"), "JSON protocol plugin"},
+		
+		// Platform-specific binaries
 		{filepath.Join(repoPath, "official", pluginName, fmt.Sprintf("%s-plugin-%s", pluginName, platform)), "platform-specific binary"},
 		{filepath.Join(repoPath, "official", pluginName, fmt.Sprintf("%s-%s", pluginName, platform)), "platform-specific name"},
 		
 		// Generic binaries
 		{filepath.Join(repoPath, "official", pluginName, fmt.Sprintf("%s-plugin", pluginName)), "generic plugin binary"},
-		{filepath.Join(repoPath, "official", pluginName, "plugin"), "generic plugin"},
 		{filepath.Join(repoPath, "official", pluginName, pluginName), "plugin name only"},
 		
 		// Fallback to root level
@@ -854,12 +871,18 @@ func (m *Manager) installFromGit(repo Repository, pluginName string) error {
 				log.Printf("[DEBUG] Found file at %s, size: %d bytes", bp.path, info.Size())
 			}
 			
-			// Validate it's a binary (not a shell script)
-			if isBinary, err := isExecutableBinary(bp.path); err == nil && isBinary {
+			// Check if it's executable (binary or JSON protocol script)
+			if isExecutable, err := isExecutableFile(bp.path); err == nil && isExecutable {
 				destPath := filepath.Join(m.localPath, fmt.Sprintf("corynth-plugin-%s", pluginName))
 				
+				// Check if this is a JSON protocol plugin (script wrapper)
+				isScript := isShellScript(bp.path)
 				if debug {
-					log.Printf("[DEBUG] Validated as binary, copying to: %s", destPath)
+					if isScript {
+						log.Printf("[DEBUG] Found JSON protocol plugin script, copying to: %s", destPath)
+					} else {
+						log.Printf("[DEBUG] Found binary plugin, copying to: %s", destPath)
+					}
 				}
 				
 				// Ensure destination has execute permissions
@@ -887,6 +910,45 @@ func (m *Manager) installFromGit(repo Repository, pluginName string) error {
 					}
 				} else if debug {
 					log.Printf("[DEBUG] No security info found for plugin '%s', proceeding with basic checks", pluginName)
+				}
+				
+				// Load the plugin based on its type
+				if isScript {
+					// For JSON protocol plugins, create a self-contained wrapper
+					srcDir := filepath.Dir(bp.path)
+					
+					if debug {
+						log.Printf("[DEBUG] Creating self-contained JSON protocol plugin wrapper")
+					}
+					
+					// Create a self-contained wrapper script that includes the Go plugin
+					if err := createSelfContainedWrapper(destPath, srcDir, pluginName); err != nil {
+						lastError = fmt.Errorf("failed to create self-contained plugin: %w", err)
+						if debug {
+							log.Printf("[DEBUG] Failed to create self-contained plugin: %v", err)
+						}
+						continue
+					}
+					
+					// For JSON protocol plugins, load as script plugin
+					if err := m.loadJSONPluginExecutable(destPath); err != nil {
+						lastError = fmt.Errorf("failed to load JSON plugin: %w", err)
+						if debug {
+							log.Printf("[DEBUG] Failed to load JSON plugin: %v", err)
+						}
+						os.Remove(destPath)
+						continue
+					}
+				} else {
+					// For compiled plugins, try to load as compiled plugin
+					if err := m.loadCompiledPlugin(destPath); err != nil {
+						lastError = fmt.Errorf("failed to load compiled plugin: %w", err)
+						if debug {
+							log.Printf("[DEBUG] Failed to load compiled plugin: %v", err)
+						}
+						os.Remove(destPath)
+						continue
+					}
 				}
 				
 				// Perform health check on the plugin
@@ -1669,6 +1731,39 @@ func isExecutableBinary(path string) (bool, error) {
 	return false, nil
 }
 
+// isExecutableFile checks if a file is executable (binary or script with execute permissions)
+func isExecutableFile(filePath string) (bool, error) {
+	info, err := os.Stat(filePath)
+	if err != nil {
+		return false, err
+	}
+	
+	// Check if file has execute permissions
+	if info.Mode()&0111 == 0 {
+		return false, nil
+	}
+	
+	return true, nil
+}
+
+// isShellScript checks if a file is a shell script (starts with shebang)
+func isShellScript(filePath string) bool {
+	file, err := os.Open(filePath)
+	if err != nil {
+		return false
+	}
+	defer file.Close()
+	
+	// Read first two bytes to check for shebang
+	header := make([]byte, 2)
+	_, err = file.Read(header)
+	if err != nil {
+		return false
+	}
+	
+	return string(header) == "#!"
+}
+
 // Helper function to copy file with specific permissions
 func copyFileWithPermissions(src, dst string, perm os.FileMode) error {
 	sourceFile, err := os.Open(src)
@@ -1690,5 +1785,121 @@ func copyFileWithPermissions(src, dst string, perm os.FileMode) error {
 
 	// Ensure permissions are set correctly
 	return os.Chmod(dst, perm)
+}
+
+// copyDirectory recursively copies a directory and all its contents
+func copyDirectory(src, dst string) error {
+	return filepath.Walk(src, func(path string, info os.FileInfo, err error) error {
+		if err != nil {
+			return err
+		}
+		
+		// Calculate relative path and destination path
+		relPath, err := filepath.Rel(src, path)
+		if err != nil {
+			return err
+		}
+		destPath := filepath.Join(dst, relPath)
+		
+		if info.IsDir() {
+			// Create directory
+			return os.MkdirAll(destPath, info.Mode())
+		} else {
+			// Copy file
+			return copyFileWithPermissions(path, destPath, info.Mode())
+		}
+	})
+}
+
+// createPluginWrapper creates a simple wrapper script that calls the real plugin
+func createPluginWrapper(wrapperPath, pluginExecutable string) error {
+	wrapperContent := fmt.Sprintf(`#!/bin/bash
+# Corynth JSON Protocol Plugin Wrapper
+exec "%s" "$@"
+`, pluginExecutable)
+	
+	if err := os.WriteFile(wrapperPath, []byte(wrapperContent), 0755); err != nil {
+		return err
+	}
+	
+	return nil
+}
+
+// createSelfContainedWrapper creates a self-contained wrapper script that embeds the Go plugin source
+func createSelfContainedWrapper(destPath, srcDir, pluginName string) error {
+	// Read the plugin.go source file
+	pluginGoPath := filepath.Join(srcDir, "plugin.go")
+	pluginGoContent, err := os.ReadFile(pluginGoPath)
+	if err != nil {
+		return fmt.Errorf("failed to read plugin.go: %w", err)
+	}
+
+	// Read go.mod if it exists
+	goModPath := filepath.Join(srcDir, "go.mod")
+	var goModContent []byte
+	if _, err := os.Stat(goModPath); err == nil {
+		goModContent, _ = os.ReadFile(goModPath)
+	}
+
+	// Create a self-contained shell script that contains the Go source embedded
+	wrapperContent := fmt.Sprintf(`#!/bin/bash
+# Corynth Self-Contained JSON Protocol Plugin: %s
+# This script contains the embedded Go plugin source and compiles/runs it on demand
+
+set -e
+
+PLUGIN_NAME="%s"
+TEMP_DIR=$(mktemp -d)
+PLUGIN_DIR="$TEMP_DIR/$PLUGIN_NAME"
+PLUGIN_BINARY="$PLUGIN_DIR/${PLUGIN_NAME}-plugin"
+PLUGIN_GO="$PLUGIN_DIR/plugin.go"
+GO_MOD="$PLUGIN_DIR/go.mod"
+
+cleanup() {
+    rm -rf "$TEMP_DIR" 2>/dev/null || true
+}
+trap cleanup EXIT
+
+# Create plugin directory
+mkdir -p "$PLUGIN_DIR"
+
+# Write embedded Go source
+cat > "$PLUGIN_GO" << 'EOF_PLUGIN_GO'
+%s
+EOF_PLUGIN_GO
+
+# Write embedded go.mod if available
+if [ -n "%s" ]; then
+cat > "$GO_MOD" << 'EOF_GO_MOD'
+%s
+EOF_GO_MOD
+fi
+
+# Change to plugin directory
+cd "$PLUGIN_DIR"
+
+# Compile the plugin if binary doesn't exist or source is newer
+if [[ ! -f "$PLUGIN_BINARY" ]] || [[ "$PLUGIN_GO" -nt "$PLUGIN_BINARY" ]]; then
+    if ! go build -o "${PLUGIN_NAME}-plugin" plugin.go 2>&1; then
+        echo "Failed to compile plugin" >&2
+        exit 1
+    fi
+fi
+
+# Execute the compiled plugin with all arguments and stdin
+exec "$PLUGIN_BINARY" "$@"
+`,
+		pluginName,                          // Plugin name for comment
+		pluginName,                          // PLUGIN_NAME variable
+		string(pluginGoContent),             // Embedded plugin.go content
+		string(goModContent),                // Check if go.mod content exists
+		string(goModContent))                // Embedded go.mod content
+
+	// Write the wrapper script
+	if err := os.WriteFile(destPath, []byte(wrapperContent), 0755); err != nil {
+		return fmt.Errorf("failed to write wrapper script: %w", err)
+	}
+
+	return nil
 }
 

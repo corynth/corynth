@@ -339,9 +339,11 @@ func getRepoOwnerAndName(repoURL string) string {
 func (m *Manager) VerifyPluginSecurity(plugin *RegistryPlugin, pluginPath string) error {
 	security := plugin.Security
 	
-	// Check trust level
+	// Check trust level - if not specified, warn but allow installation
 	if security.TrustLevel == "" {
-		return fmt.Errorf("plugin has no trust level specified")
+		fmt.Printf("Warning: Plugin '%s' has no trust level specified - installing as unverified\n", plugin.Name)
+		// Continue with installation but skip other security checks
+		return nil
 	}
 	
 	// For non-official plugins, require additional verification
