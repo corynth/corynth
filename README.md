@@ -1033,7 +1033,7 @@ git add . && git commit -m "Add my-plugin"
 git push origin add-my-plugin
 ```
 
-See [docs/PLUGIN_DEVELOPMENT_GUIDE.md](docs/PLUGIN_DEVELOPMENT_GUIDE.md) for comprehensive plugin development documentation.
+See [PLUGIN_DEVELOPMENT_GUIDE.md](PLUGIN_DEVELOPMENT_GUIDE.md) for comprehensive plugin development documentation.
 
 ## 📊 Performance
 
@@ -1123,9 +1123,11 @@ This project is licensed under the Apache License 2.0 - see the [LICENSE](LICENS
 
 ### Documentation
 
-- **Plugin Development**: [docs/PLUGIN_DEVELOPMENT_GUIDE.md](docs/PLUGIN_DEVELOPMENT_GUIDE.md)
-- **Plugin System**: [docs/PLUGIN_SYSTEM.md](docs/PLUGIN_SYSTEM.md)
-- **Quick Reference**: [docs/PLUGIN_QUICK_REFERENCE.md](docs/PLUGIN_QUICK_REFERENCE.md)
+- **Plugin Architecture**: [PLUGIN_ARCHITECTURE.md](PLUGIN_ARCHITECTURE.md)
+- **Plugin Development**: [PLUGIN_DEVELOPMENT_GUIDE.md](PLUGIN_DEVELOPMENT_GUIDE.md)
+- **Installation**: [docs/installation.md](docs/installation.md)
+- **Quick Start**: [docs/quick-start.md](docs/quick-start.md)
+- **Workflow Syntax**: [docs/workflow-syntax.md](docs/workflow-syntax.md)
 
 ### Community
 
