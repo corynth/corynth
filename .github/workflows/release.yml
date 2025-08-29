@@ -1,0 +1,185 @@
+name: Production Release
+
+on:
+  push:
+    tags:
+      - 'v*'
+  workflow_dispatch:
+    inputs:
+      version:
+        description: 'Version tag (e.g., v1.0.0)'
+        required: true
+        default: 'v1.0.0'
+
+permissions:
+  contents: write
+
+jobs:
+  build-and-release:
+    runs-on: ubuntu-latest
+    strategy:
+      matrix:
+        include:
+          - goos: linux
+            goarch: amd64
+          - goos: linux  
+            goarch: arm64
+          - goos: darwin
+            goarch: amd64
+          - goos: darwin
+            goarch: arm64
+          - goos: windows
+            goarch: amd64
+
+    steps:
+    - uses: actions/checkout@v4
+    
+    - name: Set up Go
+      uses: actions/setup-go@v4
+      with:
+        go-version: '1.21'
+    
+    - name: Get version
+      id: version
+      run: |
+        if [ "${{ github.event_name }}" = "push" ]; then
+          echo "version=${GITHUB_REF#refs/tags/}" >> $GITHUB_OUTPUT
+        else
+          echo "version=${{ github.event.inputs.version }}" >> $GITHUB_OUTPUT
+        fi
+    
+    - name: Build Corynth
+      run: |
+        VERSION=${{ steps.version.outputs.version }}
+        BUILD_DATE=$(date -u '+%Y-%m-%d_%H:%M:%S')
+        COMMIT=$(git rev-parse --short HEAD)
+        
+        LDFLAGS="-X main.Version=${VERSION} -X main.BuildDate=${BUILD_DATE} -X main.Commit=${COMMIT}"
+        
+        output_name="corynth-${{ matrix.goos }}-${{ matrix.goarch }}"
+        if [ "${{ matrix.goos }}" = "windows" ]; then
+          output_name="${output_name}.exe"
+        fi
+        
+        echo "Building ${output_name}..."
+        GOOS=${{ matrix.goos }} GOARCH=${{ matrix.goarch }} go build \
+          -ldflags "${LDFLAGS} -w -s" \
+          -o "${output_name}" \
+          ./cmd/corynth
+        
+        # Verify binary
+        file "${output_name}"
+        ls -lah "${output_name}"
+    
+    - name: Upload artifacts
+      uses: actions/upload-artifact@v3
+      with:
+        name: corynth-${{ matrix.goos }}-${{ matrix.goarch }}
+        path: corynth-*
+        retention-days: 7
+
+  create-release:
+    needs: build-and-release
+    runs-on: ubuntu-latest
+    
+    steps:
+    - uses: actions/checkout@v4
+    
+    - name: Get version
+      id: version
+      run: |
+        if [ "${{ github.event_name }}" = "push" ]; then
+          echo "version=${GITHUB_REF#refs/tags/}" >> $GITHUB_OUTPUT
+        else
+          echo "version=${{ github.event.inputs.version }}" >> $GITHUB_OUTPUT
+        fi
+    
+    - name: Download all artifacts
+      uses: actions/download-artifact@v3
+      with:
+        path: artifacts/
+    
+    - name: Prepare release assets
+      run: |
+        mkdir -p release-assets
+        find artifacts/ -name "corynth-*" -exec cp {} release-assets/ \;
+        
+        # Create checksums
+        cd release-assets
+        shasum -a 256 * > checksums.txt
+        echo "${{ steps.version.outputs.version }}" > version.txt
+        echo "$(date -u '+%Y-%m-%d_%H:%M:%S')" > build-date.txt
+        cd ..
+        
+        echo "Release assets:"
+        ls -la release-assets/
+    
+    - name: Create Release
+      uses: softprops/action-gh-release@v1
+      with:
+        tag_name: ${{ steps.version.outputs.version }}
+        name: Corynth ${{ steps.version.outputs.version }}
+        body: |
+          ## Corynth Workflow Orchestration Platform
+          
+          ### 🚀 New in this Release
+          - Shell-only minimal build (17MB, zero dependencies)
+          - Binary plugin system with automatic installation
+          - Production-ready plugin architecture
+          - Cross-platform compatibility
+          
+          ### 📦 Installation
+          
+          **Quick Install:**
+          ```bash
+          # Linux/macOS
+          curl -sSL https://github.com/corynth/corynth/releases/latest/download/corynth-$(uname -s | tr '[:upper:]' '[:lower:]')-$(uname -m | sed 's/x86_64/amd64/') -o corynth
+          chmod +x corynth
+          sudo mv corynth /usr/local/bin/
+          
+          # Verify installation
+          corynth version
+          ```
+          
+          **Manual Download:**
+          - **Linux**: `corynth-linux-amd64`, `corynth-linux-arm64`
+          - **macOS**: `corynth-darwin-amd64`, `corynth-darwin-arm64` 
+          - **Windows**: `corynth-windows-amd64.exe`
+          
+          ### 🔌 Plugin System
+          
+          Only the `shell` plugin is built-in. All other plugins install automatically:
+          
+          ```bash
+          # Plugins install automatically when used
+          corynth apply workflow.hcl
+          
+          # Or install manually
+          corynth plugin install http
+          corynth plugin install docker
+          corynth plugin list
+          ```
+          
+          ### 📚 Quick Start
+          
+          ```bash
+          # Generate sample workflow
+          corynth sample --template hello-world
+          
+          # Run workflow  
+          corynth apply hello-world.hcl
+          ```
+          
+          ### 🛡️ Security
+          - All binaries are checksummed (see `checksums.txt`)
+          - Minimal attack surface with shell-only core
+          - Plugin isolation through subprocess execution
+          
+          ---
+          
+          **Full Documentation**: https://github.com/corynth/corynth/blob/main/README.md
+        files: release-assets/*
+        draft: false
+        prerelease: false
+      env:
+        GITHUB_TOKEN: ${{ secrets.GITHUB_TOKEN }}

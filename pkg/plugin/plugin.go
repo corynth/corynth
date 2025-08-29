@@ -7,6 +7,7 @@ import (
 	"fmt"
 	"io"
 	"log"
+	"net/http"
 	"os"
 	"os/exec"
 	"path/filepath"
@@ -18,7 +19,7 @@ import (
 
 	"github.com/go-git/go-git/v5"
 	"github.com/go-git/go-git/v5/plumbing"
-	"github.com/go-git/go-git/v5/plumbing/transport/http"
+	githttp "github.com/go-git/go-git/v5/plumbing/transport/http"
 	"gopkg.in/yaml.v3"
 )
 
@@ -160,11 +161,9 @@ func (m *Manager) LoadLocal() error {
 
 // loadBuiltinPlugins loads built-in plugins
 func (m *Manager) loadBuiltinPlugins() {
-	// Load only essential plugins by default
-	// Only shell plugin is built-in - all others are remote RPC/subprocess plugins
+	// Only shell plugin is built-in as per design specification
+	// All other plugins must be loaded remotely
 	m.plugins["shell"] = NewShellPlugin()
-	
-	// All other plugins (http, file, git, slack, reporting) will be loaded as remote RPC plugins on demand
 }
 
 // tryLoadBuiltinPlugin attempts to lazy load a built-in plugin by name
@@ -756,6 +755,95 @@ func (m *Manager) InstallFromRepository(name string) error {
 
 // installFromGit installs a plugin from a Git repository
 func (m *Manager) installFromGit(repo Repository, pluginName string) error {
+	// First try to install from pre-compiled binaries
+	if err := m.installPrecompiledPlugin(repo, pluginName); err == nil {
+		return nil
+	}
+	
+	// Fallback to source installation
+	return m.installSourcePlugin(repo, pluginName)
+}
+
+// installPrecompiledPlugin installs a pre-compiled binary plugin
+func (m *Manager) installPrecompiledPlugin(repo Repository, pluginName string) error {
+	// Detect platform
+	platform := runtime.GOOS
+	arch := runtime.GOARCH
+	
+	// Map Go arch names to release arch names
+	switch arch {
+	case "amd64":
+		arch = "amd64"
+	case "arm64":
+		arch = "arm64"
+	default:
+		return fmt.Errorf("unsupported architecture: %s", arch)
+	}
+	
+	// Construct binary name
+	binaryName := fmt.Sprintf("corynth-plugin-%s-%s-%s", pluginName, platform, arch)
+	if platform == "windows" {
+		binaryName += ".exe"
+	}
+	
+	// Try to download from GitHub releases
+	releaseURL := fmt.Sprintf("https://github.com/corynth/plugins/releases/latest/download/%s", binaryName)
+	
+	// Download to temporary file first
+	destPath := filepath.Join(m.localPath, fmt.Sprintf("corynth-plugin-%s", pluginName))
+	tempPath := destPath + ".tmp"
+	
+	if err := m.downloadFile(releaseURL, tempPath); err != nil {
+		return fmt.Errorf("failed to download precompiled plugin: %w", err)
+	}
+	
+	// Make executable and move to final location
+	if err := os.Chmod(tempPath, 0755); err != nil {
+		os.Remove(tempPath)
+		return fmt.Errorf("failed to make plugin executable: %w", err)
+	}
+	
+	if err := os.Rename(tempPath, destPath); err != nil {
+		os.Remove(tempPath)
+		return fmt.Errorf("failed to install plugin: %w", err)
+	}
+	
+	fmt.Printf("✓ Installed precompiled plugin %s for %s/%s\n", pluginName, platform, arch)
+	return nil
+}
+
+// downloadFile downloads a file from URL to local path
+func (m *Manager) downloadFile(url, destPath string) error {
+	// Create parent directory
+	if err := os.MkdirAll(filepath.Dir(destPath), 0755); err != nil {
+		return err
+	}
+	
+	// Create file
+	out, err := os.Create(destPath)
+	if err != nil {
+		return err
+	}
+	defer out.Close()
+	
+	// Download
+	resp, err := http.Get(url)
+	if err != nil {
+		return err
+	}
+	defer resp.Body.Close()
+	
+	if resp.StatusCode != http.StatusOK {
+		return fmt.Errorf("download failed: HTTP %d", resp.StatusCode)
+	}
+	
+	// Copy to file
+	_, err = io.Copy(out, resp.Body)
+	return err
+}
+
+// installSourcePlugin installs a plugin from source (fallback)
+func (m *Manager) installSourcePlugin(repo Repository, pluginName string) error {
 	// Clone or update repository
 	repoPath := filepath.Join(m.cachePath, "repos", repo.Name)
 	
@@ -774,7 +862,7 @@ func (m *Manager) installFromGit(repo Repository, pluginName string) error {
 		}
 
 		if repo.Token != "" {
-			cloneOpts.Auth = &http.BasicAuth{
+			cloneOpts.Auth = &githttp.BasicAuth{
 				Username: "token",
 				Password: repo.Token,
 			}
@@ -801,7 +889,7 @@ func (m *Manager) installFromGit(repo Repository, pluginName string) error {
 		}
 
 		if repo.Token != "" {
-			pullOpts.Auth = &http.BasicAuth{
+			pullOpts.Auth = &githttp.BasicAuth{
 				Username: "token",
 				Password: repo.Token,
 			}
