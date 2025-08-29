@@ -149,9 +149,9 @@ func (m *Manager) LoadLocal() error {
 				fmt.Printf("Warning: failed to load compiled plugin from %s: %v\n", entryPath, err)
 			}
 		} else if strings.HasPrefix(entry.Name(), "corynth-plugin-") && !strings.Contains(entry.Name(), ".") {
-			// Load gRPC plugin executable
-			if err := m.loadGRPCPlugin(entryPath); err != nil {
-				fmt.Printf("Warning: failed to load gRPC plugin from %s: %v\n", entryPath, err)
+			// Load JSON protocol plugin executable
+			if err := m.loadJSONPluginExecutable(entryPath); err != nil {
+				fmt.Printf("Warning: failed to load JSON plugin from %s: %v\n", entryPath, err)
 			}
 		}
 	}
@@ -285,10 +285,21 @@ type PluginConfig struct {
 
 // loadPlugin loads a plugin from a directory
 func (m *Manager) loadPlugin(path string) error {
-	// Check for plugin.yaml or plugin.yml
+	// First, check if it's a remote plugin with 'plugin' executable (JSON protocol)
+	pluginExecutablePath := filepath.Join(path, "plugin")
+	if _, err := os.Stat(pluginExecutablePath); err == nil {
+		return m.loadRemoteJSONPlugin(path, pluginExecutablePath)
+	}
+
+	// Check for plugin.yaml or plugin.yml (traditional plugins)
 	metadataPath := filepath.Join(path, "plugin.yaml")
 	if _, err := os.Stat(metadataPath); os.IsNotExist(err) {
 		metadataPath = filepath.Join(path, "plugin.yml")
+	}
+
+	// If no YAML metadata, this might be a remote plugin without YAML
+	if _, err := os.Stat(metadataPath); os.IsNotExist(err) {
+		return fmt.Errorf("no plugin metadata found (plugin.yaml/yml) and no 'plugin' executable")
 	}
 
 	// Read plugin metadata
@@ -315,6 +326,183 @@ func (m *Manager) loadPlugin(path string) error {
 	}
 
 	return fmt.Errorf("no valid plugin implementation found")
+}
+
+// loadRemoteJSONPlugin loads a remote plugin that uses JSON stdin/stdout protocol
+func (m *Manager) loadRemoteJSONPlugin(pluginDir, executablePath string) error {
+	// Extract plugin name from directory
+	pluginName := filepath.Base(pluginDir)
+	
+	// Get metadata from the plugin executable
+	metadata, err := m.loadJSONPluginMetadata(executablePath)
+	if err != nil {
+		return fmt.Errorf("failed to load plugin metadata: %w", err)
+	}
+	
+	// Get actions from the plugin executable
+	actions, err := m.loadJSONPluginActions(executablePath)
+	if err != nil {
+		return fmt.Errorf("failed to load plugin actions: %w", err)
+	}
+	
+	// Create script plugin instance
+	plugin := &ScriptPlugin{
+		metadata:   metadata,
+		scriptPath: executablePath,
+		actions:    actions,
+	}
+	
+	// Use the plugin name from metadata if available, otherwise use directory name
+	if metadata.Name != "" {
+		pluginName = metadata.Name
+	}
+	
+	// Store the plugin
+	m.plugins[pluginName] = plugin
+	
+	return nil
+}
+
+// loadJSONPluginMetadata gets metadata from a JSON protocol plugin
+func (m *Manager) loadJSONPluginMetadata(executablePath string) (Metadata, error) {
+	cmd := exec.Command(executablePath, "metadata")
+	output, err := cmd.Output()
+	if err != nil {
+		return Metadata{}, fmt.Errorf("failed to get metadata: %w", err)
+	}
+	
+	var metadata Metadata
+	if err := json.Unmarshal(output, &metadata); err != nil {
+		return Metadata{}, fmt.Errorf("invalid metadata JSON: %w", err)
+	}
+	
+	return metadata, nil
+}
+
+// loadJSONPluginActions gets actions from a JSON protocol plugin
+func (m *Manager) loadJSONPluginActions(executablePath string) ([]Action, error) {
+	cmd := exec.Command(executablePath, "actions")
+	output, err := cmd.Output()
+	if err != nil {
+		return nil, fmt.Errorf("failed to get actions: %w", err)
+	}
+	
+	// The output is a map of action names to action specs
+	var actionsMap map[string]interface{}
+	if err := json.Unmarshal(output, &actionsMap); err != nil {
+		return nil, fmt.Errorf("invalid actions JSON: %w", err)
+	}
+	
+	// Convert to Action structs
+	var actions []Action
+	for name, spec := range actionsMap {
+		action := Action{
+			Name:        name,
+			Description: getStringFromActionSpec(spec, "description"),
+		}
+		
+		// Parse inputs and outputs if available
+		if specMap, ok := spec.(map[string]interface{}); ok {
+			action.Inputs = parseInputSpecs(specMap["inputs"])
+			action.Outputs = parseOutputSpecs(specMap["outputs"])
+		}
+		
+		actions = append(actions, action)
+	}
+	
+	return actions, nil
+}
+
+// Helper functions for parsing action specifications
+func getStringFromActionSpec(spec interface{}, key string) string {
+	if specMap, ok := spec.(map[string]interface{}); ok {
+		if val, ok := specMap[key].(string); ok {
+			return val
+		}
+	}
+	return ""
+}
+
+func parseInputSpecs(inputs interface{}) map[string]InputSpec {
+	result := make(map[string]InputSpec)
+	if inputsMap, ok := inputs.(map[string]interface{}); ok {
+		for name, spec := range inputsMap {
+			if specMap, ok := spec.(map[string]interface{}); ok {
+				inputSpec := InputSpec{
+					Type:        getStringFromMap(specMap, "type"),
+					Description: getStringFromMap(specMap, "description"),
+					Required:    getBoolFromMap(specMap, "required"),
+					Default:     specMap["default"],
+				}
+				result[name] = inputSpec
+			}
+		}
+	}
+	return result
+}
+
+func parseOutputSpecs(outputs interface{}) map[string]OutputSpec {
+	result := make(map[string]OutputSpec)
+	if outputsMap, ok := outputs.(map[string]interface{}); ok {
+		for name, spec := range outputsMap {
+			if specMap, ok := spec.(map[string]interface{}); ok {
+				outputSpec := OutputSpec{
+					Type:        getStringFromMap(specMap, "type"),
+					Description: getStringFromMap(specMap, "description"),
+				}
+				result[name] = outputSpec
+			}
+		}
+	}
+	return result
+}
+
+// Helper function to safely get bool from map
+func getBoolFromMap(m map[string]interface{}, key string) bool {
+	if val, ok := m[key].(bool); ok {
+		return val
+	}
+	return false
+}
+
+// loadJSONPluginExecutable loads a JSON protocol plugin from an executable file
+func (m *Manager) loadJSONPluginExecutable(executablePath string) error {
+	// Extract plugin name from executable path (remove "corynth-plugin-" prefix)
+	fileName := filepath.Base(executablePath)
+	if !strings.HasPrefix(fileName, "corynth-plugin-") {
+		return fmt.Errorf("invalid JSON plugin name format: %s", fileName)
+	}
+	
+	pluginName := strings.TrimPrefix(fileName, "corynth-plugin-")
+	
+	// Get metadata from the plugin executable
+	metadata, err := m.loadJSONPluginMetadata(executablePath)
+	if err != nil {
+		return fmt.Errorf("failed to load plugin metadata: %w", err)
+	}
+	
+	// Get actions from the plugin executable
+	actions, err := m.loadJSONPluginActions(executablePath)
+	if err != nil {
+		return fmt.Errorf("failed to load plugin actions: %w", err)
+	}
+	
+	// Create script plugin instance
+	plugin := &ScriptPlugin{
+		metadata:   metadata,
+		scriptPath: executablePath,
+		actions:    actions,
+	}
+	
+	// Use the plugin name from metadata if available, otherwise use extracted name
+	if metadata.Name != "" {
+		pluginName = metadata.Name
+	}
+	
+	// Store the plugin
+	m.plugins[pluginName] = plugin
+	
+	return nil
 }
 
 // loadGoPlugin loads a Go plugin

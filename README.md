@@ -17,7 +17,7 @@ Corynth is a production-ready workflow orchestration platform built in Go that e
 
 ### Plugin System
 - **Built-in Plugin**: `shell` - Available immediately for system operations  
-- **gRPC Plugins**: `http`, `docker`, `terraform`, `k8s`, `llm` - Production-grade compiled plugins
+- **Remote Plugins**: `http`, `docker`, `terraform`, `kubernetes`, `llm` - Production-grade JSON protocol plugins
 - **Automated Installation** - Pre-compiled binaries with zero-configuration setup
 - **Remote Discovery** - 14+ plugins available from GitHub plugin registry
 
@@ -266,14 +266,14 @@ workflow "parallel-tasks" {
 
 ## 🔌 Plugin System
 
-Corynth features a production-ready gRPC plugin system with automated installation and a growing ecosystem of plugins for infrastructure, container orchestration, cloud deployments, and automation tasks.
+Corynth features a production-ready plugin system with automated installation and a growing ecosystem of plugins for infrastructure, container orchestration, cloud deployments, and automation tasks.
 
 ### Plugin Architecture
 
-**gRPC-Based Design**: Plugins run as separate processes communicating via gRPC, ensuring:
+**JSON Protocol Design**: Plugins run as separate processes communicating via JSON stdin/stdout, ensuring:
 - **Process Isolation**: Plugin crashes don't affect main workflow engine
-- **Language Flexibility**: Plugins can be written in any language supporting gRPC  
-- **Performance**: Fast binary communication with minimal overhead
+- **Simplicity**: Easy to develop and debug with standard JSON
+- **Performance**: Fast JSON communication with minimal overhead
 - **Reliability**: Automatic plugin discovery and loading
 
 ### Plugin Installation System (v1.2.0+)
@@ -291,12 +291,12 @@ Production-ready installation system with ~90%+ first-time success rate:
 #### Core Plugins
 - **shell** - Built-in command execution and process management ✅ Working
 
-#### gRPC Plugins (Production-grade compiled plugins)
-- **http** - HTTP/HTTPS client for REST API calls ✅ Working (Go/gRPC)
-- **docker** - Docker container management and operations ✅ Working (Go/gRPC)
-- **terraform** - Infrastructure as Code operations ✅ Working (Go/gRPC)  
-- **k8s** - Kubernetes cluster management ✅ Working (Go/gRPC)
-- **llm** - Large Language Model integration ✅ Working (Go/gRPC)
+#### Remote Plugins (Production-grade JSON protocol plugins)
+- **http** - HTTP/HTTPS client for REST API calls ✅ Working
+- **docker** - Docker container management and operations ✅ Working
+- **terraform** - Infrastructure as Code operations ✅ Working  
+- **kubernetes** - Kubernetes cluster management ✅ Working
+- **llm** - Large Language Model integration ✅ Working
 - **calculator** - Mathematical calculations and unit conversions ✅ Working
 - **reporting** - Generate formatted reports and documents ✅ Working
 - **slack** - Slack messaging and notifications ✅ Working
@@ -336,7 +336,7 @@ Production-ready installation system with ~90%+ first-time success rate:
 - **Built-in Plugins**: 1 essential plugin (`shell`) ✅ Working (included in default installation)
 - **Installable Plugins**: 14+ production-grade plugins available for automated installation ✅ Zero pre-installed
 - **Template Processing**: ✅ Variable substitution working with `{{.Variables.name}}` syntax
-- **Plugin Auto-discovery**: ✅ gRPC plugins automatically discovered from `.corynth/plugins/` directory
+- **Plugin Auto-discovery**: ✅ Remote plugins automatically discovered from `.corynth/plugins/` directory
 - **Automated Installation**: ✅ `corynth plugin install <name>` works with pre-compiled binaries
 - **Remote Repository**: ✅ 14+ plugins available from GitHub plugin registry
 - **Clean Default Installation**: ✅ Only shell plugin included by default, all others installed on-demand
